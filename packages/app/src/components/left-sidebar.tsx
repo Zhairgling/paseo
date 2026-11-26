@@ -106,6 +106,7 @@ import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
 import { openSettingsFromSidebar } from "@/navigation/settings-navigation";
 import { UsageSidebarItem, UsageSidebarRoot, useUsageSummary, useOpenSidebarUsage } from "@/usage";
+import { ColabSidebarStatusItem } from "@/homelab/colab-sidebar-item";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
 import { SidebarWorkspaceList } from "./sidebar-workspace-list";
@@ -543,10 +544,10 @@ function SidebarFooterRows({ onBeforeNavigate }: { onBeforeNavigate?: () => void
   const visibleItems = items.filter(
     (item) => item.visible && (item.kind === "plugin" || usageSummary.length > 0),
   );
-  if (visibleItems.length === 0) return null;
   return (
     <>
       <View ref={rowsRef} collapsable={false} style={styles.footerRows}>
+        <ColabSidebarStatusItem onBeforeNavigate={onBeforeNavigate} />
         {visibleItems.map((item) =>
           item.kind === "plugin" ? (
             <PluginSidebarItem

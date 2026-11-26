@@ -21,7 +21,7 @@ import { useHosts } from "@/runtime/host-runtime";
 import { buildHostAgentDetailRoute } from "@/utils/host-routes";
 
 type TabId = "team" | "gpu" | "docs";
-type TargetId = "both" | "mac" | "evo" | "air" | "blade" | "launch_both";
+type TargetId = "both" | "colab" | "mac" | "evo" | "air" | "blade" | "launch_both";
 type BehaviorId = "queue" | "steer" | "interrupt";
 type NodeHealth = "ok" | "warn" | "off";
 
@@ -37,6 +37,7 @@ const TAB_OPTIONS: ReadonlyArray<{ id: TabId; label: string }> = [
 
 const TARGET_OPTIONS: ReadonlyArray<{ id: TargetId; label: string }> = [
   { id: "both", label: "Les deux (Mac + EVO)" },
+  { id: "colab", label: "Colab 80B" },
   { id: "mac", label: "Mac 8-bit" },
   { id: "evo", label: "EVO Gemma 4" },
   { id: "air", label: "Air explore" },
@@ -67,6 +68,32 @@ function getNodeHealth(node: HomelabGpuNode): NodeHealth {
   if (node.ready) return "ok";
   if (node.online) return "warn";
   return "off";
+}
+
+function getColabHealth(colab: HomelabGpuStatus["colab"] | undefined): NodeHealth {
+  const state = (colab?.state ?? "").toLowerCase();
+  if (state === "ready" || state === "running" || (colab?.in_flight ?? 0) > 0) return "ok";
+  if (state === "starting" || state === "warming" || state === "booting") return "warn";
+  return "off";
+}
+
+function formatColabPillLabel(colab: HomelabGpuStatus["colab"] | undefined): string {
+  const gpuName = colab?.gpu ? `Colab ${colab.gpu}` : "Colab";
+  if (typeof colab?.compute_units_balance === "number") {
+    return `${gpuName} · ${Math.round(colab.compute_units_balance)} CU`;
+  }
+  return gpuName;
+}
+
+function resolveDisplayAgentBadge(agent: HomelabTeamAgent): string {
+  const model = (agent.model ?? "").toLowerCase();
+  if (model.includes("colab/")) {
+    if (model.includes("smart-auto")) return "AUTO";
+    if (model.includes("qwen3-coder") || model.includes("80b")) return "COLAB 80B";
+    if (model.includes("72b")) return "COLAB 72B";
+    return "COLAB";
+  }
+  return agent.badge;
 }
 
 function getEvoHealth(node: HomelabGpuNode): NodeHealth {
@@ -250,6 +277,11 @@ function TopStrip({
 
       {nodes ? (
         <View style={styles.gpuPillsRow}>
+          <GpuPill
+            label={formatColabPillLabel(gpu.colab)}
+            status={getColabHealth(gpu.colab)}
+            onPress={onOpenGpu}
+          />
           <GpuPill label="Mac 8-bit" status={getNodeHealth(nodes.mac)} onPress={onOpenGpu} />
           <GpuPill
             label={nodes.evo.irisDegraded ? "EVO 128K" : "EVO Iris"}
@@ -300,7 +332,7 @@ function AgentChipButton({
   return (
     <PressHighlight onPress={handlePress} style={styles.agentChip}>
       <View style={[styles.dot, agent.status === "running" ? styles.dotOk : styles.dotWarn]} />
-      <Text style={styles.agentChipBadge}>{agent.badge}</Text>
+      <Text style={styles.agentChipBadge}>{resolveDisplayAgentBadge(agent)}</Text>
       <Text style={styles.agentChipTitle} numberOfLines={1}>
         {agent.title}
       </Text>
@@ -546,21 +578,49 @@ function TeamTabPanel({
   );
 }
 
+function formatAutoStop(seconds: number | undefined): string | null {
+  if (typeof seconds !== "number" || seconds <= 0) return null;
+  const mins = Math.ceil(seconds / 60);
+  return `Arrêt auto dans ~${mins} min`;
+}
+
 function ColabRouterCard({ gpu, onToggleTts }: { gpu: HomelabGpuStatus; onToggleTts: () => void }) {
+  const colabHealth = getColabHealth(gpu.colab);
+  const loadedModel =
+    gpu.colab.loaded_models?.[0] ?? gpu.colab.default_model ?? "Aucun modèle chargé";
+  const g4Hours = gpu.colab.estimated_hours_remaining?.G4_96GB_hours;
+  const hoursSuffix = typeof g4Hours === "number" ? ` · ~${g4Hours.toFixed(1)}h G4` : "";
+  const autoStopText = formatAutoStop(gpu.colab.auto_stop_in_seconds);
+  const colabStateLabel = (gpu.colab.state ?? "inconnu").toUpperCase();
+
   return (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>Routeur Colab G4 & Pocket TTS (:11435)</Text>
-      <Text style={styles.kvLine}>
-        Cible primaire : {gpu.router.active_primary_target ?? "—"} · Colab :{" "}
-        {gpu.colab.state ?? "inconnu"} ({gpu.colab.gpu ?? "—"})
-      </Text>
+      <View style={styles.msgHead}>
+        <Text style={styles.cardTitle}>Colab {gpu.colab.gpu ?? "G4"} & Routeur (:11435)</Text>
+        <View style={[styles.badgePill, colabHealth === "ok" ? styles.badgeOk : styles.badgeWarn]}>
+          <Text
+            style={[
+              styles.badgeText,
+              colabHealth === "ok" ? styles.badgeOkText : styles.badgeWarnText,
+            ]}
+          >
+            {colabStateLabel}
+          </Text>
+        </View>
+      </View>
+      <Text style={styles.monoMuted}>{loadedModel}</Text>
       <Text style={styles.kvLine}>
         Compute Units : {gpu.colab.compute_units_balance ?? "—"} CU (
-        {gpu.colab.compute_units_rate_hr ?? 0} CU/h)
+        {gpu.colab.compute_units_rate_hr ?? 0} CU/h){hoursSuffix}
       </Text>
       <Text style={styles.kvLine}>
-        Pocket TTS : {gpu.router.pocket_tts_online ? "En ligne" : "Hors ligne"} (
-        {gpu.router.tts_voice ?? "Iris"}) · {gpu.router.tts_enabled ? "ON" : "OFF"}
+        Requêtes en cours : {gpu.colab.in_flight ?? 0}
+        {autoStopText ? ` · ${autoStopText}` : ""}
+      </Text>
+      <Text style={styles.kvLine}>
+        Cible primaire routeur : {gpu.router.active_primary_target ?? "—"} · Pocket TTS :{" "}
+        {gpu.router.pocket_tts_online ? "En ligne" : "Hors ligne"} ({gpu.router.tts_voice ?? "Iris"}
+        ) · {gpu.router.tts_enabled ? "ON" : "OFF"}
       </Text>
       <View style={styles.cardActions}>
         <Button variant="secondary" size="sm" onPress={onToggleTts}>

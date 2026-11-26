@@ -28,10 +28,24 @@ export interface HomelabGpuStatus {
   };
   colab: {
     state?: string;
+    phase?: string;
+    session?: string;
     gpu?: string;
+    default_model?: string;
+    loaded_models?: string[];
     in_flight?: number;
+    idle_seconds?: number;
+    idle_timeout_seconds?: number;
+    auto_stop_in_seconds?: number;
     compute_units_balance?: number;
     compute_units_rate_hr?: number;
+    estimated_hours_remaining?: {
+      G4_96GB_hours?: number;
+      A100_80GB_hours?: number;
+      L4_24GB_hours?: number;
+      T4_15GB_hours?: number;
+    };
+    last_error?: string | null;
   };
   irisDegraded: boolean;
   irisSwitch: {

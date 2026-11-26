@@ -12,8 +12,9 @@ import { SearchField } from "@/components/ui/search-field";
 import { useAggregatedAgents, type AggregatedAgent } from "@/hooks/use-aggregated-agents";
 import { buildNewWorkspaceRoute } from "@/utils/host-routes";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
+import { formatSessionModelBadge } from "@/utils/session-display";
 
-type InboxFilter = "active" | "running" | "attention" | "all";
+type InboxFilter = "active" | "running" | "colab" | "attention" | "all";
 type SessionStateKind = "permission" | "running" | "attention" | "idle" | "archived";
 
 const ThemedRefreshIcon = withUnistyles(RefreshCw, (theme) => ({
@@ -75,17 +76,25 @@ function stateBadgeLabel(agent: AggregatedAgent, kind: SessionStateKind): string
   return "Idle";
 }
 
+function isColabAgent(agent: AggregatedAgent): boolean {
+  const model = (agent.model ?? "").toLowerCase();
+  if (model.startsWith("colab/") || model.includes("colab/")) return true;
+  return (agent.title ?? "").toLowerCase().includes("colab");
+}
+
 function matchesSearchQuery(agent: AggregatedAgent, query: string): boolean {
   if (!query) return true;
   const repo = repoNameFromCwd(agent.cwd);
+  const modelBadge = formatSessionModelBadge(agent.provider, agent.model);
   const haystack =
-    `${agent.title ?? ""} ${repo} ${agent.cwd} ${agent.provider} ${agent.id} ${agent.serverLabel}`.toLowerCase();
+    `${agent.title ?? ""} ${repo} ${agent.cwd} ${agent.provider} ${agent.model ?? ""} ${modelBadge} ${agent.id} ${agent.serverLabel}`.toLowerCase();
   return haystack.includes(query);
 }
 
 function matchesInboxFilter(agent: AggregatedAgent, filter: InboxFilter): boolean {
   if (filter === "active") return isAgentActive(agent);
   if (filter === "running") return !agent.archivedAt && isAgentRunning(agent);
+  if (filter === "colab") return !agent.archivedAt && isColabAgent(agent);
   if (filter === "attention") return !agent.archivedAt && needsAgentAttention(agent);
   return true;
 }
@@ -142,13 +151,15 @@ function InboxScreenContent(): ReactElement {
   const counts = useMemo(() => {
     let active = 0;
     let running = 0;
+    let colab = 0;
     let attention = 0;
     for (const agent of sortedChronological) {
       if (isAgentActive(agent)) active += 1;
       if (!agent.archivedAt && isAgentRunning(agent)) running += 1;
+      if (!agent.archivedAt && isColabAgent(agent)) colab += 1;
       if (!agent.archivedAt && needsAgentAttention(agent)) attention += 1;
     }
-    return { active, running, attention, all: sortedChronological.length };
+    return { active, running, colab, attention, all: sortedChronological.length };
   }, [sortedChronological]);
 
   const filteredAgents = useMemo(
@@ -229,6 +240,14 @@ function InboxScreenContent(): ReactElement {
             active={filter === "running"}
             onSelect={setFilter}
           />
+          {counts.colab > 0 ? (
+            <FilterPill
+              id="colab"
+              label={`Colab (${counts.colab})`}
+              active={filter === "colab"}
+              onSelect={setFilter}
+            />
+          ) : null}
           <FilterPill
             id="attention"
             label={`Permissions (${counts.attention})`}
@@ -334,6 +353,8 @@ const InboxSessionRow = memo(function InboxSessionRow({
   const title = agent.title?.trim() || `Session ${agent.id.slice(0, 7)}`;
   const relTime = formatRelativeTime(agent.lastActivityAt);
   const stateLabel = stateBadgeLabel(agent, kind);
+  const modelBadge = formatSessionModelBadge(agent.provider, agent.model);
+  const colab = isColabAgent(agent);
 
   return (
     <PressHighlight
@@ -352,16 +373,29 @@ const InboxSessionRow = memo(function InboxSessionRow({
       </View>
 
       <View style={styles.rowMeta}>
+        {modelBadge ? (
+          <View style={[styles.stateBadge, colab ? styles.badgeAccent : styles.badgeNeutral]}>
+            <Text
+              style={[
+                styles.stateBadgeText,
+                colab ? styles.badgeAccentText : styles.badgeNeutralText,
+              ]}
+              numberOfLines={1}
+            >
+              {modelBadge}
+            </Text>
+          </View>
+        ) : null}
+        <View style={[styles.stateBadge, badgeStyleForKind(kind)]}>
+          <Text style={[styles.stateBadgeText, badgeTextStyleForKind(kind)]}>{stateLabel}</Text>
+        </View>
         <View style={styles.repoBadge}>
           <Text style={styles.repoBadgeText} numberOfLines={1}>
             {repo}
           </Text>
         </View>
-        <View style={[styles.stateBadge, badgeStyleForKind(kind)]}>
-          <Text style={[styles.stateBadgeText, badgeTextStyleForKind(kind)]}>{stateLabel}</Text>
-        </View>
         <Text style={styles.providerText} numberOfLines={1}>
-          {agent.provider} · {agent.id.slice(0, 7)}
+          {agent.id.slice(0, 7)}
         </Text>
       </View>
     </PressHighlight>

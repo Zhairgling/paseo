@@ -152,34 +152,64 @@ function expandHome(raw: string | undefined): string {
   return trimmed;
 }
 
+const MACHINE_CLASSIFIERS: ReadonlyArray<{
+  match: (comb: string, title: string) => boolean;
+  meta: { tag: string; machine: string; badge: string };
+}> = [
+  {
+    match: (c, t) =>
+      c.includes("evo-local") || c.includes("gemma-4") || t.includes("gemma4") || t.includes("evo"),
+    meta: { tag: "EVO Gemma 4", machine: "evo", badge: "EVO" },
+  },
+  {
+    match: (c, t) => c.includes("mac/") || c.includes("qwen3.8-27b") || t.includes("8-bit"),
+    meta: { tag: "MacBook Pro 8-bit", machine: "mac", badge: "MAC" },
+  },
+  {
+    match: (c, t) => c.includes("air/") || t.includes("air explore"),
+    meta: { tag: "MacBook Air", machine: "air", badge: "AIR" },
+  },
+  {
+    match: (c, t) => c.includes("blade/") || c.includes("blade-auto") || t.includes("blade verify"),
+    meta: { tag: "Razer Blade", machine: "blade", badge: "BLADE" },
+  },
+  {
+    match: (c) => c.includes("colab/") && c.includes("smart-auto"),
+    meta: { tag: "Colab Auto", machine: "colab", badge: "AUTO" },
+  },
+  {
+    match: (c) => c.includes("colab/") && (c.includes("qwen3-coder") || c.includes("80b")),
+    meta: { tag: "Colab G4 80B", machine: "colab", badge: "COLAB 80B" },
+  },
+  {
+    match: (c) => c.includes("colab/") && c.includes("72b"),
+    meta: { tag: "Colab G4 72B", machine: "colab", badge: "COLAB 72B" },
+  },
+  {
+    match: (c) => c.includes("colab/"),
+    meta: { tag: "Colab G4", machine: "colab", badge: "COLAB" },
+  },
+  {
+    match: (c) => c.includes("smart-auto"),
+    meta: { tag: "Routeur Auto", machine: "colab", badge: "AUTO" },
+  },
+  {
+    match: (c) => c.includes("antigravity"),
+    meta: { tag: "Antigravity", machine: "antigravity", badge: "AGY" },
+  },
+  {
+    match: (c) => c.includes("claude"),
+    meta: { tag: "Claude", machine: "claude", badge: "CLAUDE" },
+  },
+];
+
 function classifyMachine(provider: string, model: string, title: string) {
   const comb = `${provider} ${model}`.toLowerCase();
   const t = title.toLowerCase();
-  if (
-    comb.includes("evo-local") ||
-    comb.includes("gemma-4") ||
-    t.includes("gemma4") ||
-    t.includes("evo")
-  ) {
-    return { tag: "EVO Gemma 4", machine: "evo", badge: "EVO" };
-  }
-  if (comb.includes("mac/") || comb.includes("qwen3.8-27b") || t.includes("8-bit")) {
-    return { tag: "MacBook Pro 8-bit", machine: "mac", badge: "MAC" };
-  }
-  if (comb.includes("air/") || t.includes("air explore")) {
-    return { tag: "MacBook Air", machine: "air", badge: "AIR" };
-  }
-  if (comb.includes("blade/") || comb.includes("blade-auto") || t.includes("blade verify")) {
-    return { tag: "Razer Blade", machine: "blade", badge: "BLADE" };
-  }
-  if (comb.includes("smart-auto") || comb.includes("colab/")) {
-    return { tag: "Routeur Auto", machine: "mac", badge: "AUTO" };
-  }
-  if (comb.includes("antigravity")) {
-    return { tag: "Antigravity", machine: "antigravity", badge: "AGY" };
-  }
-  if (comb.includes("claude")) {
-    return { tag: "Claude", machine: "claude", badge: "CLAUDE" };
+  for (const rule of MACHINE_CLASSIFIERS) {
+    if (rule.match(comb, t)) {
+      return rule.meta;
+    }
   }
   return { tag: model.split("/").pop() || provider || "Agent", machine: "other", badge: "AGENT" };
 }

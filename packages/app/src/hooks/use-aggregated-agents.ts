@@ -10,6 +10,7 @@ import { useAllDirectoryDemand } from "./use-directory-demand";
 export interface AggregatedAgent extends AgentDirectoryEntry {
   serverId: string;
   serverLabel: string;
+  model?: string | null;
 }
 
 export interface AggregatedAgentsResult {
@@ -22,6 +23,10 @@ export interface AggregatedAgentsResult {
 
 const NO_AGENT_MAPS: Record<string, Map<string, Agent> | undefined> = Object.freeze({});
 const NO_AGENTS: AggregatedAgent[] = [];
+
+function resolveAgentModel(agent: Agent): string | null {
+  return agent.runtimeInfo?.model ?? agent.model ?? null;
+}
 
 export function useAggregatedAgents(options?: {
   includeArchived?: boolean;
@@ -107,6 +112,7 @@ export function useAggregatedAgents(options?: {
           cwd: agent.cwd,
           workspaceId: agent.workspaceId,
           provider: agent.provider,
+          model: resolveAgentModel(agent),
           pendingPermissionCount: agent.pendingPermissions.length,
           requiresAttention: agent.requiresAttention,
           attentionReason: agent.attentionReason,
