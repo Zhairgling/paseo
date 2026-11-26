@@ -18,6 +18,10 @@ const customWebPlatform = (process.env.PASEO_WEB_PLATFORM ?? "")
 
 const config = getDefaultConfig(projectRoot);
 config.cacheVersion = isWatchdogBuild ? "watchdog" : "standard";
+const metroMaxWorkers = Number.parseInt(process.env.METRO_MAX_WORKERS ?? "", 10);
+if (Number.isFinite(metroMaxWorkers) && metroMaxWorkers > 0) {
+  config.maxWorkers = metroMaxWorkers;
+}
 const defaultResolveRequest = config.resolver.resolveRequest ?? resolve;
 
 // Keep app exports deterministic across dev machines and CI. Metro's Watchman
