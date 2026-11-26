@@ -6,12 +6,14 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { PressHighlight } from "@/components/ui/press-highlight";
 import { homelabFetchJson, resolveHomelabDaemonTarget, type HomelabGpuStatus } from "@/homelab/api";
+import { computeColabGpuMetrics } from "@/homelab/colab-metrics";
 import { useAppVisible } from "@/hooks/use-app-visible";
 import { useHosts } from "@/runtime/host-runtime";
 import type { Theme } from "@/styles/theme";
+import { UsageMeter } from "@/usage/meter";
 import { buildTeamRoute } from "@/utils/host-routes";
 
-const POLL_INTERVAL_MS = 15_000;
+const POLL_INTERVAL_MS = 12_000;
 
 const ThemedCpuIcon = withUnistyles(Cpu, (theme: Theme) => ({
   color: theme.colors.foregroundMuted,
@@ -34,32 +36,17 @@ function dotStyleForHealth(health: ColabHealth) {
   return styles.dotOff;
 }
 
-function formatColabSummary(colab: HomelabGpuStatus["colab"]): string {
-  const parts: string[] = [];
-  const inFlight = colab.in_flight ?? 0;
-  const state = (colab.state ?? "").toLowerCase();
+function formatColabStatusShort(inFlight: number, state: string): string {
   if (inFlight > 0) {
-    parts.push(`${inFlight} actif${inFlight > 1 ? "s" : ""}`);
-  } else if (state === "ready") {
-    parts.push("prêt");
-  } else if (state === "starting" || state === "warming") {
-    parts.push("démarrage");
-  } else if (state) {
-    parts.push(state);
+    return `${inFlight} actif${inFlight > 1 ? "s" : ""}`;
   }
-  if (typeof colab.compute_units_balance === "number") {
-    parts.push(`${Math.round(colab.compute_units_balance)} CU`);
-  }
-  const g4Hours = colab.estimated_hours_remaining?.G4_96GB_hours;
-  if (typeof g4Hours === "number" && g4Hours > 0) {
-    parts.push(`~${Math.round(g4Hours)}h`);
-  }
-  return parts.join(" · ");
+  if (state === "ready") return "prêt";
+  return state;
 }
 
 /**
- * Compact 1-line Colab G4 + Compute Units indicator sitting in the sidebar
- * footer alongside cloud provider usage quotas. Tapping it opens Équipe & GPU.
+ * Compact Colab G4 status + VRAM gauge + Compute Units indicator sitting in the
+ * sidebar footer alongside cloud provider usage quotas. Tapping opens Équipe & GPU.
  */
 export const ColabSidebarStatusItem = memo(function ColabSidebarStatusItem({
   onBeforeNavigate,
@@ -114,15 +101,22 @@ export const ColabSidebarStatusItem = memo(function ColabSidebarStatusItem({
   }
 
   const health = classifyColabHealth(colab);
-  const gpuLabel = colab.gpu ? `Colab ${colab.gpu}` : "Colab";
-  const summary = formatColabSummary(colab);
+  const metrics = computeColabGpuMetrics(colab);
+  const gpuLabel = `Colab ${metrics.gpuName}`;
+  const statusShort = formatColabStatusShort(metrics.inFlight, metrics.state);
+  const cuShort = metrics.cuBalance !== null ? `${Math.round(metrics.cuBalance)} CU` : "";
+  const vramPrefix = metrics.vramEstimated ? "~" : "";
+  const gaugeCaption =
+    metrics.vramPct > 0
+      ? `${vramPrefix}${metrics.vramPct}% VRAM (${vramPrefix}${Math.round(metrics.vramUsedGb)}/${metrics.vramTotalGb}G)`
+      : `0% VRAM (veille)`;
 
   return (
     <PressHighlight
       onPress={handlePress}
       style={styles.trigger}
       accessibilityRole="button"
-      accessibilityLabel={`${gpuLabel}: ${summary}`}
+      accessibilityLabel={`${gpuLabel} ${statusShort}, ${gaugeCaption}, ${cuShort}`}
       testID="sidebar-colab-status"
     >
       <View style={styles.row}>
@@ -131,11 +125,18 @@ export const ColabSidebarStatusItem = memo(function ColabSidebarStatusItem({
         <Text style={styles.gpuLabel} numberOfLines={1}>
           {gpuLabel}
         </Text>
-        {summary ? (
-          <Text style={styles.summaryText} numberOfLines={1}>
-            {summary}
-          </Text>
-        ) : null}
+        <Text style={styles.summaryText} numberOfLines={1}>
+          {statusShort}
+          {cuShort ? ` · ${cuShort}` : ""}
+        </Text>
+      </View>
+      <View style={styles.gaugeRow}>
+        <View style={styles.gaugeTrack}>
+          <UsageMeter percent={metrics.vramPct} tone={metrics.vramTone} />
+        </View>
+        <Text style={styles.gaugeLabel} numberOfLines={1}>
+          {gaugeCaption}
+        </Text>
       </View>
     </PressHighlight>
   );
@@ -146,6 +147,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[2],
     paddingVertical: theme.spacing[1.5],
     borderRadius: theme.borderRadius.md,
+    gap: 4,
   },
   row: {
     flexDirection: "row",
@@ -180,5 +182,20 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: 11,
     fontFamily: theme.fontFamily.mono,
     color: theme.colors.foregroundMuted,
+  },
+  gaugeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  gaugeTrack: {
+    flex: 1,
+    minWidth: 44,
+  },
+  gaugeLabel: {
+    fontSize: 10,
+    fontFamily: theme.fontFamily.mono,
+    color: theme.colors.foregroundMuted,
+    flexShrink: 0,
   },
 }));

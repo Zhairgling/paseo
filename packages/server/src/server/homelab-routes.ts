@@ -10,6 +10,8 @@ const execFileAsync = promisify(execFile);
 
 const ROUTER_URL = process.env.PASEO_HOMELAB_ROUTER_URL ?? "http://127.0.0.1:11435/router";
 const COLAB_STATUS_URL = process.env.PASEO_HOMELAB_COLAB_URL ?? "http://127.0.0.1:11435/status";
+const COLAB_OLLAMA_PS_URL =
+  process.env.PASEO_HOMELAB_COLAB_PS_URL ?? "http://127.0.0.1:11436/api/ps";
 const EVO_HEALTH_URL = process.env.PASEO_HOMELAB_EVO_HEALTH_URL ?? "http://127.0.0.1:18998/health";
 const AIR_MODELS_URL =
   process.env.PASEO_HOMELAB_AIR_MODELS_URL ?? "http://100.94.219.79:8000/v1/models";
@@ -286,9 +288,10 @@ async function probeGpuCluster() {
   }
 
   const hasIrisScript = await pathExists(IRIS_MODE_SCRIPT);
-  const [router, colab, evoHealth, airModels, irisStatus] = await Promise.all([
+  const [router, colab, colabPs, evoHealth, airModels, irisStatus] = await Promise.all([
     fetchJson<Record<string, unknown>>(ROUTER_URL, { timeoutMs: 1600 }),
     fetchJson<Record<string, unknown>>(COLAB_STATUS_URL, { timeoutMs: 1600 }),
+    fetchJson<{ models?: Array<{ size_vram?: number }> }>(COLAB_OLLAMA_PS_URL, { timeoutMs: 800 }),
     fetchJson<{ status?: string }>(EVO_HEALTH_URL, { timeoutMs: 1200 }),
     fetchJson<{ data?: Array<{ id?: string }> }>(AIR_MODELS_URL, {
       headers: { Authorization: `Bearer ${AIR_API_KEY}` },
@@ -299,6 +302,18 @@ async function probeGpuCluster() {
       : Promise.resolve({ rc: 1, stdout: "", stderr: "" }),
   ]);
 
+  const gpuVramTotals: Record<string, number> = { G4: 96, H100: 80, A100: 80, L4: 24, T4: 15 };
+  const colabObj: Record<string, unknown> = colab ? { ...colab } : {};
+  if (colabPs?.models && Array.isArray(colabPs.models)) {
+    const usedBytes = colabPs.models.reduce((acc, m) => acc + (m.size_vram ?? 0), 0);
+    const gpuKey = String(colabObj.gpu ?? "G4").toUpperCase();
+    const totalGb = gpuVramTotals[gpuKey] ?? 96;
+    const usedGb = Math.round((usedBytes / 1024 ** 3) * 10) / 10;
+    colabObj.vram_used_gb = usedGb;
+    colabObj.vram_total_gb = totalGb;
+    colabObj.vram_pct = Math.max(0, Math.min(100, Math.round((usedGb / totalGb) * 100)));
+  }
+
   const airModelList = (airModels?.data ?? []).map((m) => m.id ?? "").filter(Boolean);
   const airReady = airModelList.some((m) => m.includes("qwen3.5-9b"));
   const evoOnline = evoHealth?.status === "ok";
@@ -308,7 +323,7 @@ async function probeGpuCluster() {
   const result = {
     routerOnline: Boolean(router),
     router: r,
-    colab: colab ?? {},
+    colab: colabObj,
     irisDegraded: Boolean(irisDegraded),
     irisSwitch: { ...irisSwitchState },
     nodes: {

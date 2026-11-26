@@ -9,6 +9,7 @@ import type { DraftCommandTarget } from "@/agent-commands";
 import { i18n } from "@/i18n/i18next";
 import { compareMatchScores, scoreTextFields } from "@getpaseo/protocol/search/text-match";
 import { filterSelectableModels } from "./model-catalog";
+import { getModelSelectorMeta } from "./model-metadata";
 
 export interface ProviderSelectionModelRow {
   /**
@@ -249,7 +250,19 @@ export function matchesModelSearch(
 }
 
 function getModelRowSearchFields(row: ProviderSelectionModelRow): string[] {
-  return [row.modelLabel, row.modelId, row.providerLabel, row.description ?? ""];
+  const meta = getModelSelectorMeta(row.provider, row.modelId, row.modelLabel);
+  if (!meta) {
+    return [row.modelLabel, row.modelId, row.providerLabel, row.description ?? ""];
+  }
+  return [
+    row.modelLabel,
+    row.modelId,
+    row.providerLabel,
+    row.description ?? "",
+    meta.summary,
+    meta.price,
+    meta.claudeCompare,
+  ];
 }
 
 export function scoreModelRow(row: ProviderSelectionModelRow, normalizedQuery: string) {

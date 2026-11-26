@@ -17,7 +17,9 @@ import {
   type HomelabTeamView,
   type HomelabTimelineItem,
 } from "@/homelab/api";
+import { computeColabGpuMetrics } from "@/homelab/colab-metrics";
 import { useHosts } from "@/runtime/host-runtime";
+import { UsageMeter } from "@/usage/meter";
 import { buildHostAgentDetailRoute } from "@/utils/host-routes";
 
 type TabId = "team" | "gpu" | "docs";
@@ -586,17 +588,23 @@ function formatAutoStop(seconds: number | undefined): string | null {
 
 function ColabRouterCard({ gpu, onToggleTts }: { gpu: HomelabGpuStatus; onToggleTts: () => void }) {
   const colabHealth = getColabHealth(gpu.colab);
+  const metrics = computeColabGpuMetrics(gpu.colab);
   const loadedModel =
     gpu.colab.loaded_models?.[0] ?? gpu.colab.default_model ?? "Aucun modèle chargé";
-  const g4Hours = gpu.colab.estimated_hours_remaining?.G4_96GB_hours;
-  const hoursSuffix = typeof g4Hours === "number" ? ` · ~${g4Hours.toFixed(1)}h G4` : "";
+  const hoursSuffix = metrics.g4Hours !== null ? ` · ~${metrics.g4Hours.toFixed(1)}h G4` : "";
   const autoStopText = formatAutoStop(gpu.colab.auto_stop_in_seconds);
-  const colabStateLabel = (gpu.colab.state ?? "inconnu").toUpperCase();
+  const colabStateLabel =
+    metrics.inFlight > 0
+      ? `EN CHARGE (${metrics.inFlight})`
+      : (gpu.colab.state ?? "inconnu").toUpperCase();
+  const vramPrefix = metrics.vramEstimated ? "~" : "";
 
   return (
     <View style={styles.card}>
       <View style={styles.msgHead}>
-        <Text style={styles.cardTitle}>Colab {gpu.colab.gpu ?? "G4"} & Routeur (:11435)</Text>
+        <Text style={styles.cardTitle}>
+          Colab {metrics.gpuName} ({metrics.vramTotalGb} Go) & Routeur (:11435)
+        </Text>
         <View style={[styles.badgePill, colabHealth === "ok" ? styles.badgeOk : styles.badgeWarn]}>
           <Text
             style={[
@@ -609,12 +617,34 @@ function ColabRouterCard({ gpu, onToggleTts }: { gpu: HomelabGpuStatus; onToggle
         </View>
       </View>
       <Text style={styles.monoMuted}>{loadedModel}</Text>
+
+      <View style={styles.gaugeBlock}>
+        <View style={styles.msgHead}>
+          <Text style={styles.kvLine}>Utilisation GPU / VRAM</Text>
+          <Text style={styles.monoMuted}>
+            {vramPrefix}
+            {metrics.vramPct}% ({vramPrefix}
+            {metrics.vramUsedGb} / {metrics.vramTotalGb} Go)
+          </Text>
+        </View>
+        <UsageMeter percent={metrics.vramPct} tone={metrics.vramTone} style={styles.gaugeBar} />
+      </View>
+
+      {metrics.cuPct !== null && metrics.cuBalance !== null ? (
+        <View style={styles.gaugeBlock}>
+          <View style={styles.msgHead}>
+            <Text style={styles.kvLine}>Compute Units Colab</Text>
+            <Text style={styles.monoMuted}>
+              {metrics.cuBalance.toFixed(1)} CU ({gpu.colab.compute_units_rate_hr ?? 0} CU/h)
+              {hoursSuffix}
+            </Text>
+          </View>
+          <UsageMeter percent={metrics.cuPct} tone={metrics.cuTone} style={styles.gaugeBar} />
+        </View>
+      ) : null}
+
       <Text style={styles.kvLine}>
-        Compute Units : {gpu.colab.compute_units_balance ?? "—"} CU (
-        {gpu.colab.compute_units_rate_hr ?? 0} CU/h){hoursSuffix}
-      </Text>
-      <Text style={styles.kvLine}>
-        Requêtes en cours : {gpu.colab.in_flight ?? 0}
+        Requêtes en cours : {metrics.inFlight}
         {autoStopText ? ` · ${autoStopText}` : ""}
       </Text>
       <Text style={styles.kvLine}>
@@ -1156,5 +1186,13 @@ const styles = StyleSheet.create((theme) => ({
     height: 18,
     backgroundColor: theme.colors.border,
     marginHorizontal: 4,
+  },
+  gaugeBlock: {
+    gap: 5,
+    paddingVertical: 2,
+  },
+  gaugeBar: {
+    height: 8,
+    borderRadius: 4,
   },
 }));

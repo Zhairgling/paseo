@@ -72,6 +72,7 @@ import {
   type ProviderSelectionModelRow,
   type ProviderSelectorProvider,
 } from "@/provider-selection/provider-selection";
+import { getModelSelectorMeta } from "@/provider-selection/model-metadata";
 import { useProviderSettingsStore } from "@/stores/provider-settings-store";
 import { useCurrentOverlayLayer } from "@/lib/overlay-root";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
@@ -963,6 +964,16 @@ function ModelRow({
     [isActive],
   );
 
+  const meta = useMemo(
+    () => getModelSelectorMeta(row.provider, row.modelId, row.modelLabel),
+    [row.modelId, row.modelLabel, row.provider],
+  );
+  const metaPrimaryLine = useMemo(() => {
+    if (!meta) return null;
+    const base = `${meta.summary} · ${meta.price}`;
+    return showProviderLabel ? `${row.providerLabel} · ${base}` : base;
+  }, [meta, row.providerLabel, showProviderLabel]);
+
   return (
     <View
       style={[styles.modelRowHoverBoundary, styles.browserModelRow]}
@@ -980,16 +991,30 @@ function ModelRow({
       >
         <View style={styles.browserRowContent}>
           <View style={styles.browserRowLeading}>{leadingSlot}</View>
-          <View style={[styles.browserRowText, description && styles.browserRowTextInline]}>
-            <Text numberOfLines={1} style={styles.browserRowLabel}>
-              {row.modelLabel}
-            </Text>
-            {description ? (
-              <Text numberOfLines={1} style={styles.browserRowDescription}>
-                {description}
+          {meta && metaPrimaryLine ? (
+            <View style={styles.browserRowMetaColumn}>
+              <Text numberOfLines={1} style={styles.browserRowLabel}>
+                {row.modelLabel}
               </Text>
-            ) : null}
-          </View>
+              <Text numberOfLines={2} style={styles.browserRowMetaPrimary}>
+                {metaPrimaryLine}
+              </Text>
+              <Text numberOfLines={1} style={styles.browserRowMetaCompare}>
+                {meta.claudeCompare}
+              </Text>
+            </View>
+          ) : (
+            <View style={[styles.browserRowText, description && styles.browserRowTextInline]}>
+              <Text numberOfLines={1} style={styles.browserRowLabel}>
+                {row.modelLabel}
+              </Text>
+              {description ? (
+                <Text numberOfLines={1} style={styles.browserRowDescription}>
+                  {description}
+                </Text>
+              ) : null}
+            </View>
+          )}
           <View style={styles.browserRowTrailing}>
             <View style={styles.browserRowSelection}>
               {isSelected ? (
@@ -2118,6 +2143,22 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "baseline",
     gap: theme.spacing[2],
+  },
+  browserRowMetaColumn: {
+    flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  browserRowMetaPrimary: {
+    fontSize: 12,
+    lineHeight: 15,
+    color: theme.colors.foregroundMuted,
+  },
+  browserRowMetaCompare: {
+    fontSize: 11,
+    lineHeight: 14,
+    color: theme.colors.accent,
   },
   browserRowLabel: {
     fontSize: theme.fontSize.base,

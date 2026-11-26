@@ -39,6 +39,9 @@ export interface HomelabGpuStatus {
     auto_stop_in_seconds?: number;
     compute_units_balance?: number;
     compute_units_rate_hr?: number;
+    vram_used_gb?: number;
+    vram_total_gb?: number;
+    vram_pct?: number;
     estimated_hours_remaining?: {
       G4_96GB_hours?: number;
       A100_80GB_hours?: number;
