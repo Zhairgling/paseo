@@ -14,10 +14,16 @@ if (!architectures) {
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const app = path.join(root, "packages/app");
+const maxWorkers = process.env.PASEO_BUILD_MAX_WORKERS ?? "4";
 const env = {
   ...process.env,
   APP_VARIANT: "production",
   PASEO_WATCHDOG_BUILD: "1",
+  // Cap native C++/CMake/Ninja and Metro concurrency so builds stay thermally safe.
+  CMAKE_BUILD_PARALLEL_LEVEL: process.env.CMAKE_BUILD_PARALLEL_LEVEL ?? maxWorkers,
+  MAKEFLAGS: process.env.MAKEFLAGS ?? `-j${maxWorkers}`,
+  UV_THREADPOOL_SIZE: process.env.UV_THREADPOOL_SIZE ?? maxWorkers,
+  METRO_MAX_WORKERS: process.env.METRO_MAX_WORKERS ?? maxWorkers,
   PASEO_DIAGNOSTIC_BUILD_TIME: new Date().toISOString(),
   PASEO_DIAGNOSTIC_REVISION:
     execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: root, encoding: "utf8" }).trim() +
@@ -26,7 +32,10 @@ const env = {
       : ""),
 };
 function run(command, args, cwd) {
-  const result = spawnSync(command, args, { cwd, env, stdio: "inherit" });
+  const useNice = process.platform === "linux" && command !== "nice";
+  const actualCmd = useNice ? "nice" : command;
+  const actualArgs = useNice ? ["-n", "15", command, ...args] : args;
+  const result = spawnSync(actualCmd, actualArgs, { cwd, env, stdio: "inherit" });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
@@ -41,6 +50,7 @@ run(
     "assembleRelease",
     "--no-daemon",
     "--max-workers=2",
+    "-Dorg.gradle.workers.max=2",
     "-Dorg.gradle.parallel=false",
     `-PreactNativeArchitectures=${architectures}`,
   ],
