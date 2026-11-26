@@ -1332,6 +1332,7 @@ export const ru: TranslationResources = {
       sessions: "История",
       search: "Поиск",
       schedules: "Расписания",
+      inbox: "All sessions",
       team: "Team & GPU",
     },
     worktreeSetup: {

@@ -1,8 +1,8 @@
 import { useCallback, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
-import { router } from "expo-router";
-import { ArrowLeft } from "lucide-react-native";
+import { router, usePathname } from "expo-router";
+import { ArrowLeft, Inbox } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { HeaderToggleButton } from "@/components/headers/header-toggle-button";
@@ -18,9 +18,11 @@ import {
   HEADER_TOP_PADDING_MOBILE,
 } from "@/constants/layout";
 import type { ShortcutKey } from "@/utils/format-shortcut";
+import { buildInboxRoute } from "@/utils/host-routes";
 import { useTopBand } from "@/window-layout";
 
 const ThemedArrowLeft = withUnistyles(ArrowLeft);
+const ThemedInbox = withUnistyles(Inbox);
 
 const NO_SHORTCUT: ShortcutKey[] = [];
 
@@ -83,7 +85,14 @@ export function CompactHeader({
           ]}
         >
           <View style={styles.island}>
-            {navigation === "menu" ? <SidebarMenuToggle /> : <BackButton onBack={onBack} />}
+            {navigation === "menu" ? (
+              <>
+                <SidebarMenuToggle />
+                <QuickInboxButton />
+              </>
+            ) : (
+              <BackButton onBack={onBack} />
+            )}
           </View>
           <View style={styles.titleGroup}>
             <CompactHeaderTitle
@@ -122,6 +131,36 @@ function CompactHeaderTitle({
       ) : null}
       {subtitle}
     </>
+  );
+}
+
+function QuickInboxButton() {
+  const { t } = useTranslation();
+  const pathname = usePathname();
+  const handlePress = useCallback(() => {
+    router.push(buildInboxRoute());
+  }, []);
+
+  if (pathname === "/inbox") {
+    return null;
+  }
+
+  return (
+    <HeaderToggleButton
+      onPress={handlePress}
+      tooltipLabel={t("sidebar.sections.inbox")}
+      tooltipKeys={NO_SHORTCUT}
+      tooltipSide="right"
+      testID="header-inbox-button"
+      accessibilityRole="button"
+      accessibilityLabel={t("sidebar.sections.inbox")}
+    >
+      <ThemedInbox
+        size={iconButtonChromeGlyphSize("large")}
+        strokeWidth={1.5}
+        uniProps={mutedIconColorMapping}
+      />
+    </HeaderToggleButton>
   );
 }
 

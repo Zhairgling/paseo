@@ -1,10 +1,11 @@
 import { router, usePathname } from "expo-router";
-import { CalendarClock, Cpu, History, Plus, Search } from "lucide-react-native";
+import { CalendarClock, Cpu, History, Inbox, Plus, Search } from "lucide-react-native";
 import { memo, useCallback, useMemo, useRef, type ComponentType, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { View, type StyleProp, type ViewStyle } from "react-native";
+import { Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
+import { useAggregatedAgents } from "@/hooks/use-aggregated-agents";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { PluginSidebarItem } from "@/plugins/sidebar-items";
 import { canCreateWorktreeForProjectKind } from "@/projects/host-projects";
@@ -19,6 +20,7 @@ import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
 import { useWorkspace } from "@/stores/session-store-hooks";
 import {
+  buildInboxRoute,
   buildNewWorkspaceRoute,
   buildSchedulesRoute,
   buildSessionsRoute,
@@ -191,6 +193,58 @@ function SidebarSchedulesRow({ onBeforeNavigate }: SidebarNavRowProps) {
   );
 }
 
+function SidebarInboxRow({ onBeforeNavigate }: SidebarNavRowProps) {
+  const { t } = useTranslation();
+  const pathname = usePathname();
+  const { agents } = useAggregatedAgents({ includeArchived: false });
+  const handlePress = useCallback(() => {
+    onBeforeNavigate?.();
+    router.push(buildInboxRoute());
+  }, [onBeforeNavigate]);
+
+  const { permCount, runningCount } = useMemo(() => {
+    let perms = 0;
+    let running = 0;
+    for (const agent of agents) {
+      perms += agent.pendingPermissionCount ?? 0;
+      if (agent.turn.phase === "open" || agent.status === "running") {
+        running += 1;
+      }
+    }
+    return { permCount: perms, runningCount: running };
+  }, [agents]);
+
+  const badge = useMemo(() => {
+    if (permCount > 0) {
+      return (
+        <View style={styles.badgeDanger}>
+          <Text style={styles.badgeDangerText}>{permCount}</Text>
+        </View>
+      );
+    }
+    if (runningCount > 0) {
+      return (
+        <View style={styles.badgeOk}>
+          <Text style={styles.badgeOkText}>{runningCount}</Text>
+        </View>
+      );
+    }
+    return null;
+  }, [permCount, runningCount]);
+
+  return (
+    <SidebarHeaderRow
+      icon={Inbox}
+      label={t(builtinSidebarNavLabelKey("inbox"))}
+      onPress={handlePress}
+      isActive={pathname === "/inbox"}
+      testID="sidebar-inbox"
+      variant="compact"
+      trailing={badge}
+    />
+  );
+}
+
 function SidebarTeamRow({ onBeforeNavigate }: SidebarNavRowProps) {
   const { t } = useTranslation();
   const pathname = usePathname();
@@ -213,13 +267,14 @@ function SidebarTeamRow({ onBeforeNavigate }: SidebarNavRowProps) {
 
 const BUILTIN_ROWS: Record<BuiltinSidebarNavId, ComponentType<SidebarNavRowProps>> = {
   "new-workspace": SidebarNewWorkspaceRow,
+  inbox: SidebarInboxRow,
   team: SidebarTeamRow,
   history: SidebarHistoryRow,
   search: SidebarSearchRow,
   schedules: SidebarSchedulesRow,
 };
 
-const styles = StyleSheet.create({
+const styles = StyleSheet.create((theme) => ({
   firstRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -228,4 +283,38 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-});
+  badgeDanger: {
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.statusDangerTint,
+    borderWidth: 1,
+    borderColor: theme.colors.statusDanger,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgeDangerText: {
+    fontSize: 10,
+    fontFamily: theme.fontFamily.mono,
+    fontWeight: theme.fontWeight.bold,
+    color: theme.colors.statusDanger,
+  },
+  badgeOk: {
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.statusSuccessTint,
+    borderWidth: 1,
+    borderColor: theme.colors.statusSuccess,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgeOkText: {
+    fontSize: 10,
+    fontFamily: theme.fontFamily.mono,
+    fontWeight: theme.fontWeight.bold,
+    color: theme.colors.statusSuccess,
+  },
+}));

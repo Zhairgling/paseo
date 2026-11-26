@@ -1339,6 +1339,7 @@ export const ptBR: TranslationResources = {
       sessions: "Histórico",
       search: "Buscar",
       schedules: "Agendamentos",
+      inbox: "All sessions",
       team: "Team & GPU",
     },
     worktreeSetup: {

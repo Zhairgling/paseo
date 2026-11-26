@@ -11,6 +11,7 @@ import {
   Cpu,
   Gauge,
   History,
+  Inbox,
   Plus,
   Search,
   type LucideIcon,
@@ -43,6 +44,7 @@ const moveDownIcon = <ThemedArrowDown size={ICON_SIZE.sm} uniProps={mutedColorMa
 
 const BUILTIN_ICONS: Record<BuiltinSidebarItemId, LucideIcon> = {
   "new-workspace": Plus,
+  inbox: Inbox,
   team: Cpu,
   history: History,
   search: Search,

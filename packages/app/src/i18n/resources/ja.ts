@@ -1327,6 +1327,7 @@ export const ja: TranslationResources = {
       sessions: "履歴",
       search: "検索",
       schedules: "スケジュール",
+      inbox: "All sessions",
       team: "Team & GPU",
     },
     worktreeSetup: {

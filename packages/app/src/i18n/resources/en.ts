@@ -1323,6 +1323,7 @@ export const en = {
       sessions: "History",
       search: "Search",
       schedules: "Schedules",
+      inbox: "All sessions",
       team: "Team & GPU",
     },
     worktreeSetup: {

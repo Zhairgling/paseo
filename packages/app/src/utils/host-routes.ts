@@ -432,6 +432,10 @@ export function buildTeamRoute() {
   return "/team" as const;
 }
 
+export function buildInboxRoute() {
+  return "/inbox" as const;
+}
+
 export function buildOpenProjectRoute() {
   return "/open-project" as const;
 }

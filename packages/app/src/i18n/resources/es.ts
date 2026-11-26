@@ -1349,6 +1349,7 @@ export const es: TranslationResources = {
       sessions: "Historial",
       search: "Buscar",
       schedules: "Horarios",
+      inbox: "All sessions",
       team: "Team & GPU",
     },
     worktreeSetup: {

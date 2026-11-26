@@ -1304,6 +1304,7 @@ export const zhCN: TranslationResources = {
       sessions: "历史",
       search: "搜索",
       schedules: "计划",
+      inbox: "All sessions",
       team: "Team & GPU",
     },
     worktreeSetup: {

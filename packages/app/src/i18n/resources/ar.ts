@@ -1312,6 +1312,7 @@ export const ar: TranslationResources = {
       sessions: "السجل",
       search: "بحث",
       schedules: "الجداول",
+      inbox: "All sessions",
       team: "Team & GPU",
     },
     worktreeSetup: {
