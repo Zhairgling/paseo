@@ -55,9 +55,12 @@ import {
   MicVocal,
   Plus,
   Scissors,
+  Square,
   TriangleAlertIcon,
+  Volume2,
   XCircle,
 } from "lucide-react-native";
+import { useReadAloud } from "@/utils/read-aloud";
 import type { ComponentType, ReactNode } from "react";
 import * as React from "react";
 import {
@@ -547,6 +550,10 @@ export const UserMessage = memo(function UserMessage({
                 onRewind={handleRewind}
               />
             ) : null}
+            <TurnSpeakButton
+              getContent={getMessageContent}
+              containerStyle={userMessageStylesheet.copyButton}
+            />
             <TurnCopyButton
               getContent={getMessageContent}
               containerStyle={userMessageStylesheet.copyButton}
@@ -683,10 +690,16 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
       {getContent || canFork || hasMetrics ? (
         <View style={assistantTurnFooterStylesheet.actions}>
           {getContent ? (
-            <TurnCopyButton
-              getContent={getContent}
-              containerStyle={assistantTurnFooterStylesheet.copyButton}
-            />
+            <>
+              <TurnCopyButton
+                getContent={getContent}
+                containerStyle={assistantTurnFooterStylesheet.copyButton}
+              />
+              <TurnSpeakButton
+                getContent={getContent}
+                containerStyle={assistantTurnFooterStylesheet.copyButton}
+              />
+            </>
           ) : null}
           {canFork ? <AssistantForkMenu onFork={handleFork} /> : null}
           {hasMetrics ? <TurnMetricsButton metrics={metrics} /> : null}
@@ -859,6 +872,55 @@ interface TurnCopyButtonProps {
   accessibilityLabel?: string;
   copiedAccessibilityLabel?: string;
 }
+
+interface TurnSpeakButtonProps {
+  getContent: () => string;
+  containerStyle?: StyleProp<ViewStyle>;
+}
+
+const TurnSpeakButton = memo(function TurnSpeakButton({
+  getContent,
+  containerStyle,
+}: TurnSpeakButtonProps) {
+  const { t } = useTranslation();
+  const speakId = React.useId();
+  const { isSpeaking, toggle } = useReadAloud(speakId);
+
+  const handlePress = useCallback(() => {
+    const text = getContent();
+    if (!text) return;
+    toggle(text);
+  }, [getContent, toggle]);
+
+  const pressableStyle = useMemo(
+    () => [turnCopyButtonStylesheet.container, containerStyle],
+    [containerStyle],
+  );
+
+  return (
+    <Pressable
+      onPress={handlePress}
+      style={pressableStyle}
+      accessibilityRole="button"
+      accessibilityLabel={
+        isSpeaking ? t("message.actions.stopReading") : t("message.actions.readAloud")
+      }
+      testID="turn-speak-button"
+    >
+      {({ hovered }) => {
+        const iconColor =
+          isSpeaking || hovered
+            ? turnCopyButtonStylesheet.iconHoveredColor.color
+            : turnCopyButtonStylesheet.iconColor.color;
+        return isSpeaking ? (
+          <Square size={ICON_SIZE.sm} color={iconColor} />
+        ) : (
+          <Volume2 size={ICON_SIZE.sm} color={iconColor} />
+        );
+      }}
+    </Pressable>
+  );
+});
 
 export const TurnCopyButton = memo(function TurnCopyButton({
   getContent,

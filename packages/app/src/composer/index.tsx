@@ -49,6 +49,7 @@ import { usePointerCapabilities } from "@/hooks/pointer-capabilities";
 import { useShallow } from "zustand/shallow";
 import {
   ArrowUp,
+  Camera,
   Square,
   Pencil,
   AudioLines,
@@ -1614,7 +1615,7 @@ function ComposerContentImpl({
     [blurOnSubmit, clearDraft, replaceUserInput, resetSuppression, setSelectedAttachments],
   );
 
-  const { pickImages } = useImageAttachmentPicker();
+  const { pickImages, takePhoto } = useImageAttachmentPicker();
   const { pickFiles } = useFilePicker();
   const agentIdRef = useRef(agentId);
   const sendAgentMessageRef = useRef<
@@ -1892,6 +1893,15 @@ function ComposerContentImpl({
     if (newImages.length === 0) return;
     addImages(newImages);
   }, [addImages, pickImages]);
+
+  const handleTakePhoto = useCallback(async () => {
+    const newImages = await pickAndPersistImages({
+      pickImages: takePhoto,
+      persister: composerImageAttachmentPersister,
+    });
+    if (newImages.length === 0) return;
+    addImages(newImages);
+  }, [addImages, takePhoto]);
 
   const handlePasteImage = useCallback(async () => {
     try {
@@ -2296,16 +2306,25 @@ function ComposerContentImpl({
   );
 
   const attachmentMenuItems = useMemo<AttachmentMenuItem[]>(() => {
-    const items: AttachmentMenuItem[] = [
-      {
-        id: "image",
-        label: t("composer.attachments.addImage"),
-        icon: <ThemedImageIcon size={ICON_SIZE.md} uniProps={iconForegroundMutedMapping} />,
+    const items: AttachmentMenuItem[] = [];
+    if (isNative) {
+      items.push({
+        id: "camera",
+        label: t("composer.attachments.takePhoto"),
+        icon: <ThemedCameraIcon size={ICON_SIZE.md} uniProps={iconForegroundMutedMapping} />,
         onSelect: () => {
-          void handlePickImage();
+          void handleTakePhoto();
         },
+      });
+    }
+    items.push({
+      id: "image",
+      label: t("composer.attachments.addImage"),
+      icon: <ThemedImageIcon size={ICON_SIZE.md} uniProps={iconForegroundMutedMapping} />,
+      onSelect: () => {
+        void handlePickImage();
       },
-    ];
+    });
     if (isNative) {
       items.push({
         id: "paste-image",
@@ -2343,6 +2362,7 @@ function ComposerContentImpl({
     handlePasteImage,
     handlePickFile,
     handlePickImage,
+    handleTakePhoto,
     pluginAttachments.menuItems,
     t,
   ]);
@@ -2856,6 +2876,7 @@ const ThemedCircleDot = withUnistyles(CircleDot);
 const ThemedAudioLines = withUnistyles(AudioLines);
 const ThemedPaperclip = withUnistyles(Paperclip);
 const ThemedImageIcon = withUnistyles(ImageIcon);
+const ThemedCameraIcon = withUnistyles(Camera);
 const ThemedClipboardPaste = withUnistyles(ClipboardPaste);
 const ThemedFileText = withUnistyles(FileText);
 const iconForegroundMapping = (theme: Theme) => ({ color: theme.colors.foreground });

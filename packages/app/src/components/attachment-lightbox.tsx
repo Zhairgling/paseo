@@ -1,7 +1,7 @@
 import { useOverlayRegistration, type KeyboardInputEvent } from "@/keyboard";
 import { Modal } from "@/components/ui/modal";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { BackHandler, Pressable, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StyleSheet } from "react-native-unistyles";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -47,6 +47,15 @@ export function AttachmentLightbox({ source, onClose }: AttachmentLightboxProps)
   useEffect(() => {
     setErrored(false);
   }, [metadata?.id, url]);
+
+  useEffect(() => {
+    if (!source || !isNative) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [onClose, source]);
 
   const handleOverlayKeyDown = useCallback(
     (event: KeyboardInputEvent) => {
@@ -98,7 +107,7 @@ export function AttachmentLightbox({ source, onClose }: AttachmentLightboxProps)
                 onPress={onClose}
                 style={styles.backdrop}
               />
-              <LightboxImageArea>
+              <LightboxImageArea onClose={onClose} showFallbackClose={failed || !url}>
                 {failed ? (
                   <Text style={styles.errorText}>{t("message.attachments.imageLoadFailed")}</Text>
                 ) : null}
@@ -124,7 +133,16 @@ export function AttachmentLightbox({ source, onClose }: AttachmentLightboxProps)
   );
 }
 
-function LightboxImageArea({ children }: { children: ReactNode }) {
+function LightboxImageArea({
+  children,
+  onClose,
+  showFallbackClose,
+}: {
+  children: ReactNode;
+  onClose: () => void;
+  showFallbackClose: boolean;
+}) {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const style = useMemo(
     () => [
@@ -138,11 +156,26 @@ function LightboxImageArea({ children }: { children: ReactNode }) {
     ],
     [insets.bottom, insets.left, insets.right, insets.top],
   );
+  const fallbackCloseStyle = useMemo(
+    () => [styles.fallbackCloseButton, { top: insets.top + 12, right: insets.right + 16 }],
+    [insets.right, insets.top],
+  );
   return (
     <View pointerEvents="box-none" style={style}>
       <View pointerEvents="box-none" style={styles.imageArea}>
         {children}
       </View>
+      {showFallbackClose ? (
+        <Pressable
+          onPress={onClose}
+          style={fallbackCloseStyle}
+          accessibilityRole="button"
+          accessibilityLabel={t("message.attachments.closeImage")}
+          testID="attachment-lightbox-fallback-close"
+        >
+          <X size={20} color="#F2EDE6" />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -181,5 +214,14 @@ const styles = StyleSheet.create((theme) => ({
   errorText: {
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.base,
+  },
+  fallbackCloseButton: {
+    position: "absolute",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(30, 27, 24, 0.85)",
+    alignItems: "center",
+    justifyContent: "center",
   },
 }));

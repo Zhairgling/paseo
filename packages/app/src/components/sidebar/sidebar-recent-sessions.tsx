@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { Pin } from "lucide-react-native";
+import { Columns2, Pin } from "lucide-react-native";
 import { memo, useCallback, useMemo, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
@@ -7,13 +7,17 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { SidebarGroupToggleRow } from "@/components/sidebar/sidebar-group-toggle-row";
 import { SidebarSectionHeader } from "@/components/sidebar/sidebar-section-header";
 import { PressHighlight } from "@/components/ui/press-highlight";
+import { useIsCompactFormFactor } from "@/constants/layout";
 import { useActiveSessionAgentId } from "@/hooks/use-active-session-agent-id";
 import { useAggregatedAgents, type AggregatedAgent } from "@/hooks/use-aggregated-agents";
 import { buildPinnedSessionKey, usePinnedSessionsStore } from "@/stores/pinned-sessions-store";
+import { useSessionStore } from "@/stores/session-store";
 import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
+import { useSplitSessionStore } from "@/stores/split-session-store";
 import type { Theme } from "@/styles/theme";
 import { buildInboxRoute } from "@/utils/host-routes";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
+import { extractLastSessionPreview, formatSessionModelBadge } from "@/utils/session-display";
 
 const COMPACT_VISIBLE_COUNT = 6;
 const EXPANDED_DEFAULT_VISIBLE_COUNT = 20;
@@ -26,6 +30,14 @@ const ThemedPinMuted = withUnistyles(Pin, (theme: Theme) => ({
 }));
 
 const ThemedPinActive = withUnistyles(Pin, (theme: Theme) => ({
+  color: theme.colors.accent,
+}));
+
+const ThemedSplitMuted = withUnistyles(Columns2, (theme: Theme) => ({
+  color: theme.colors.foregroundExtraMuted,
+}));
+
+const ThemedSplitActive = withUnistyles(Columns2, (theme: Theme) => ({
   color: theme.colors.accent,
 }));
 
@@ -69,7 +81,12 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
   expandedDefault?: boolean;
 }): ReactElement | null {
   const { t } = useTranslation();
+  const isCompactLayout = useIsCompactFormFactor();
   const activeAgentId = useActiveSessionAgentId();
+  const secondarySplitAgentId = useSplitSessionStore(
+    (state) => state.secondarySession?.agentId ?? null,
+  );
+  const toggleSplitSession = useSplitSessionStore((state) => state.toggleSplitSession);
   const { agents } = useAggregatedAgents({ includeArchived: false });
   const collapsed = useSidebarCollapsedSectionsStore((state) => state.collapsedRecentSessions);
   const toggleCollapsed = useSidebarCollapsedSectionsStore(
@@ -142,6 +159,18 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
     [togglePinSession],
   );
 
+  const handleToggleSplit = useCallback(
+    (agent: AggregatedAgent) => {
+      if (!agent.workspaceId) return;
+      toggleSplitSession({
+        serverId: agent.serverId,
+        agentId: agent.id,
+        workspaceId: agent.workspaceId,
+      });
+    },
+    [toggleSplitSession],
+  );
+
   if (pinnedAgents.length === 0 && unpinnedAgents.length === 0) {
     return null;
   }
@@ -151,6 +180,7 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
     ? unpinnedAgents.slice(0, EXPANDED_MAX_VISIBLE_COUNT)
     : unpinnedAgents.slice(0, baseLimit);
   const canToggleMore = unpinnedAgents.length > baseLimit;
+  const canSplit = !isCompactLayout;
 
   return (
     <>
@@ -170,8 +200,11 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
                   agent={agent}
                   isActive={activeAgentId === agent.id}
                   isPinned
+                  isSplitOpen={secondarySplitAgentId === agent.id}
+                  canSplit={canSplit && Boolean(agent.workspaceId)}
                   onPress={handleOpenAgent}
                   onTogglePin={handleTogglePin}
+                  onToggleSplit={handleToggleSplit}
                 />
               ))}
             </View>
@@ -203,8 +236,11 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
                 agent={agent}
                 isActive={activeAgentId === agent.id}
                 isPinned={pinnedKeySet.has(buildPinnedSessionKey(agent.serverId, agent.id))}
+                isSplitOpen={secondarySplitAgentId === agent.id}
+                canSplit={canSplit && Boolean(agent.workspaceId)}
                 onPress={handleOpenAgent}
                 onTogglePin={handleTogglePin}
+                onToggleSplit={handleToggleSplit}
               />
             ))}
             {canToggleMore ? (
@@ -225,15 +261,34 @@ const RecentSessionRow = memo(function RecentSessionRow({
   agent,
   isActive,
   isPinned,
+  isSplitOpen,
+  canSplit,
   onPress,
   onTogglePin,
+  onToggleSplit,
 }: {
   agent: AggregatedAgent;
   isActive: boolean;
   isPinned: boolean;
+  isSplitOpen: boolean;
+  canSplit: boolean;
   onPress: (agent: AggregatedAgent) => void;
   onTogglePin: (agent: AggregatedAgent) => void;
+  onToggleSplit: (agent: AggregatedAgent) => void;
 }) {
+  const modelId = useSessionStore((state) => {
+    const live = state.sessions[agent.serverId]?.agents.get(agent.id);
+    return live?.runtimeInfo?.model ?? live?.model ?? null;
+  });
+  const lastPreview = useSessionStore((state) => {
+    const session = state.sessions[agent.serverId];
+    if (!session) return null;
+    return extractLastSessionPreview(
+      session.agentStreamTail.get(agent.id),
+      session.agentStreamHead.get(agent.id),
+    );
+  });
+
   const handlePress = useCallback(() => {
     onPress(agent);
   }, [agent, onPress]);
@@ -242,9 +297,15 @@ const RecentSessionRow = memo(function RecentSessionRow({
     onTogglePin(agent);
   }, [agent, onTogglePin]);
 
+  const handleSplitPress = useCallback(() => {
+    onToggleSplit(agent);
+  }, [agent, onToggleSplit]);
+
   const kind = classifyDotKind(agent);
   const title = agent.title?.trim() || `Session ${agent.id.slice(0, 7)}`;
+  const modelBadge = formatSessionModelBadge(agent.provider, modelId);
   const repo = repoNameFromCwd(agent.cwd);
+  const subtitleText = lastPreview || (repo && repo !== modelBadge ? repo : "");
   const age = formatCompactAge(agent.lastActivityAt);
   const perms = agent.pendingPermissionCount ?? 0;
 
@@ -260,11 +321,21 @@ const RecentSessionRow = memo(function RecentSessionRow({
           <Text style={[styles.rowTitle, isActive && styles.rowTitleActive]} numberOfLines={1}>
             {title}
           </Text>
-          {repo ? (
-            <Text style={[styles.rowRepo, isActive && styles.rowRepoActive]} numberOfLines={1}>
-              {repo}
-            </Text>
-          ) : null}
+          <View style={styles.metaLine}>
+            {modelBadge ? (
+              <Text
+                style={[styles.modelChip, isActive && styles.modelChipActive]}
+                numberOfLines={1}
+              >
+                {modelBadge}
+              </Text>
+            ) : null}
+            {subtitleText ? (
+              <Text style={styles.rowPreview} numberOfLines={1}>
+                {subtitleText}
+              </Text>
+            ) : null}
+          </View>
         </View>
         {perms > 0 ? (
           <View style={styles.permPill}>
@@ -274,9 +345,20 @@ const RecentSessionRow = memo(function RecentSessionRow({
           <Text style={styles.rowAge}>{age}</Text>
         )}
       </PressHighlight>
+      {canSplit ? (
+        <PressHighlight
+          onPress={handleSplitPress}
+          style={styles.actionButton}
+          accessibilityRole="button"
+          accessibilityLabel={isSplitOpen ? "Close split conversation" : "Open side by side"}
+          testID={`sidebar-split-session-${agent.id}`}
+        >
+          {isSplitOpen ? <ThemedSplitActive size={12} /> : <ThemedSplitMuted size={12} />}
+        </PressHighlight>
+      ) : null}
       <PressHighlight
         onPress={handlePinPress}
-        style={styles.pinButton}
+        style={styles.actionButton}
         accessibilityRole="button"
         accessibilityLabel={isPinned ? "Unpin conversation" : "Pin conversation"}
         testID={`sidebar-pin-session-${agent.id}`}
@@ -326,13 +408,13 @@ const styles = StyleSheet.create((theme) => ({
     paddingVertical: 6,
     borderRadius: theme.borderRadius.md,
   },
-  pinButton: {
+  actionButton: {
     width: 24,
     height: 28,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: theme.borderRadius.sm,
-    marginRight: 2,
+    marginRight: 1,
   },
   dot: {
     width: 7,
@@ -355,7 +437,7 @@ const styles = StyleSheet.create((theme) => ({
   rowCenter: {
     flex: 1,
     minWidth: 0,
-    gap: 1,
+    gap: 2,
   },
   rowTitle: {
     fontSize: theme.fontSize.sm,
@@ -366,13 +448,26 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: theme.fontWeight.bold,
     color: theme.colors.foreground,
   },
-  rowRepo: {
-    fontSize: 10.5,
-    fontFamily: theme.fontFamily.mono,
-    color: theme.colors.foregroundExtraMuted,
+  metaLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    minWidth: 0,
   },
-  rowRepoActive: {
+  modelChip: {
+    fontSize: 10,
+    fontFamily: theme.fontFamily.mono,
+    color: theme.colors.foregroundMuted,
+    flexShrink: 0,
+  },
+  modelChipActive: {
     color: theme.colors.accent,
+  },
+  rowPreview: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 10.5,
+    color: theme.colors.foregroundExtraMuted,
   },
   rowAge: {
     fontSize: 10.5,

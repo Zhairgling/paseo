@@ -26,6 +26,8 @@ interface CompactWorkspaceHeaderProps {
   headerVariant: "compact" | "full";
   isRouteFocused: boolean;
   isCompact: boolean;
+  /** When set, replaces the menu toggle with a back button (e.g. closing a file/image tab). */
+  onBack?: () => void;
 }
 
 /** The compact header with the workspace's project row and controls. */
@@ -42,6 +44,7 @@ export function CompactWorkspaceHeader({
   headerVariant,
   isRouteFocused,
   isCompact,
+  onBack,
 }: CompactWorkspaceHeaderProps) {
   const actionsInBar = resolveWorkspaceActionPlacement(useWindowLayout()) === "vertical-bar";
   const projectRow = useMemo(
@@ -67,7 +70,8 @@ export function CompactWorkspaceHeader({
     <IconButtonChromeProvider value="header-island">
       {headerVariant === "compact" ? (
         <CompactHeader
-          navigation="menu"
+          navigation={onBack ? "back" : "menu"}
+          onBack={onBack}
           inDesktopTitlebar={inDesktopTitlebar}
           title={title}
           titleTestID="workspace-header-title"

@@ -1894,19 +1894,10 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
 
     const shouldHandleWebKeyPress = isWeb;
     const shouldSubmitOnEnter = isWeb && !isCompact;
-    const shouldSubmitOnAndroidEnter = Platform.OS === "android" && sendShortcut === "enter";
-
-    const handleAndroidSubmitEditing = useCallback(() => {
-      if (!shouldSubmitOnAndroidEnter) return;
-      if (isSubmitDisabled || isSubmitLoading || disabled) return;
-      handleDefaultSendAction();
-    }, [
-      disabled,
-      handleDefaultSendAction,
-      isSubmitDisabled,
-      isSubmitLoading,
-      shouldSubmitOnAndroidEnter,
-    ]);
+    // On Android touch keyboards, keep the bottom-right Enter key inserting a newline so users
+    // never send half-written messages by mistake; the dedicated Send button handles submission.
+    const androidNewlineBehavior = Platform.OS === "android" ? ("newline" as const) : undefined;
+    const androidReturnKeyType = Platform.OS === "android" ? ("default" as const) : undefined;
 
     const handleDesktopKeyPress = useCallback(
       (event: WebTextInputKeyPressEvent) => {
@@ -2209,9 +2200,8 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
             scrollEnabled={isComposerScrollEnabled}
             autoFocus={false}
             onKeyPress={shouldHandleWebKeyPress ? handleDesktopKeyPress : undefined}
-            submitBehavior={shouldSubmitOnAndroidEnter ? "submit" : undefined}
-            returnKeyType={shouldSubmitOnAndroidEnter ? "send" : undefined}
-            onSubmitEditing={shouldSubmitOnAndroidEnter ? handleAndroidSubmitEditing : undefined}
+            submitBehavior={androidNewlineBehavior}
+            returnKeyType={androidReturnKeyType}
             onSelectionChange={handleSelectionChange}
             onPasteImages={onPasteImages}
             onPasteError={handlePasteError}
@@ -2244,8 +2234,8 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         isComposerScrollEnabled,
         shouldHandleWebKeyPress,
         handleDesktopKeyPress,
-        shouldSubmitOnAndroidEnter,
-        handleAndroidSubmitEditing,
+        androidNewlineBehavior,
+        androidReturnKeyType,
         handleSelectionChange,
         onPasteImages,
         handlePasteError,

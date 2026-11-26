@@ -232,6 +232,11 @@ import {
 import { RenderProfile } from "@/utils/render-profiler";
 import { useWorkspaceCheckoutStatus } from "@/screens/workspace/use-workspace-checkout-status";
 import { useWorkspacePullRequestDiscovery } from "@/panels/pull-request";
+import { ArrowLeft } from "lucide-react-native";
+import { PressHighlight } from "@/components/ui/press-highlight";
+import { NativeSplitSessionPane } from "@/screens/workspace/native-split-pane";
+import { useSplitSessionStore } from "@/stores/split-session-store";
+import { formatSessionModelBadge } from "@/utils/session-display";
 
 const NO_SHEETS: readonly SheetTab[] = [];
 const WORKSPACE_FLOATING_PANEL_PORTAL_HOST_PREFIX = "workspace-floating-panels";
@@ -278,6 +283,99 @@ function buildWorkspaceFileLocation(
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
 
 const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const ThemedBackIcon = withUnistyles(ArrowLeft, (theme: Theme) => ({
+  color: theme.colors.foreground,
+}));
+
+function isNonAgentWorkspaceTab(tab: WorkspaceTabDescriptor | null): tab is WorkspaceTabDescriptor {
+  return tab !== null && tab.kind !== "agent" && tab.kind !== "draft";
+}
+
+function useActiveNonAgentTabClose({
+  activeTabDescriptor,
+  isRouteFocused,
+  isMobile,
+  onCloseTab,
+}: {
+  activeTabDescriptor: WorkspaceTabDescriptor | null;
+  isRouteFocused: boolean;
+  isMobile: boolean;
+  onCloseTab: (tabId: string) => void;
+}): (() => void) | undefined {
+  const nonAgentTabId = isNonAgentWorkspaceTab(activeTabDescriptor)
+    ? activeTabDescriptor.tabId
+    : null;
+
+  useEffect(() => {
+    if (!isRouteFocused || isWeb) {
+      return;
+    }
+
+    const handler = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (nonAgentTabId) {
+        onCloseTab(nonAgentTabId);
+        return true;
+      }
+      if (!isMobile) {
+        const splitState = useSplitSessionStore.getState();
+        if (splitState.secondarySession) {
+          splitState.closeSplitSession();
+          return true;
+        }
+      }
+      return false;
+    });
+
+    return () => handler.remove();
+  }, [isMobile, isRouteFocused, nonAgentTabId, onCloseTab]);
+
+  return useMemo(() => {
+    if (!nonAgentTabId) {
+      return undefined;
+    }
+    return () => onCloseTab(nonAgentTabId);
+  }, [nonAgentTabId, onCloseTab]);
+}
+
+function NonAgentTabCloseButton({ onPress }: { onPress: () => void }) {
+  return (
+    <PressHighlight
+      onPress={onPress}
+      style={styles.nonAgentCloseButton}
+      accessibilityRole="button"
+      accessibilityLabel="Retour"
+      testID="workspace-non-agent-tab-close"
+    >
+      <ThemedBackIcon size={16} />
+      <Text style={styles.nonAgentCloseLabel}>Retour</Text>
+    </PressHighlight>
+  );
+}
+
+function WorkspaceNativeSplitRow({
+  isWorkspaceFocused,
+  children,
+}: {
+  isWorkspaceFocused: boolean;
+  children: ReactNode;
+}) {
+  const secondarySession = useSplitSessionStore((state) => state.secondarySession);
+  const closeSplitSession = useSplitSessionStore((state) => state.closeSplitSession);
+  const showSplit = secondarySession !== null;
+
+  return (
+    <View style={[styles.centerContent, showSplit && styles.centerContentSplit]}>
+      <View style={styles.content}>{children}</View>
+      {secondarySession ? (
+        <NativeSplitSessionPane
+          target={secondarySession}
+          isWorkspaceFocused={isWorkspaceFocused}
+          onClose={closeSplitSession}
+        />
+      ) : null}
+    </View>
+  );
+}
 
 interface WorkspaceScreenProps {
   serverId: string;
@@ -683,6 +781,16 @@ function useEffectiveWorkspaceHeader(input: {
   });
 
   return useMemo(() => {
+    if (settings.sessionMinimalHeader && input.activeTabDescriptor?.target.kind === "file") {
+      const filePath = input.activeTabDescriptor.target.path;
+      const segments = filePath.split(/[\\/]/).filter(Boolean);
+      const fileName = segments[segments.length - 1] ?? filePath;
+      return {
+        title: fileName,
+        subtitle: input.workspaceHeaderSubtitle,
+        isSubtitleDistinct: input.workspaceHeaderSubtitle.length > 0,
+      };
+    }
     if (!settings.sessionMinimalHeader || !activeSessionAgent) {
       return {
         title: input.workspaceHeaderTitle,
@@ -695,8 +803,11 @@ function useEffectiveWorkspaceHeader(input: {
     const cleaned = activeSessionAgent.cwd.replace(/[\\/]+$/, "");
     const parts = cleaned.split(/[\\/]/).filter(Boolean);
     const repo = parts[parts.length - 1] ?? input.workspaceHeaderSubtitle;
-    const provider = activeSessionAgent.provider?.trim();
-    const subtitle = provider ? `${repo} · ${provider}` : repo;
+    const modelBadge = formatSessionModelBadge(
+      activeSessionAgent.provider,
+      activeSessionAgent.runtimeInfo?.model ?? activeSessionAgent.model,
+    );
+    const subtitle = modelBadge ? `${modelBadge} · ${repo}` : repo;
     return {
       title,
       subtitle,
@@ -704,6 +815,7 @@ function useEffectiveWorkspaceHeader(input: {
     };
   }, [
     activeSessionAgent,
+    input.activeTabDescriptor,
     input.isWorkspaceHeaderSubtitleDistinct,
     input.workspaceHeaderSubtitle,
     input.workspaceHeaderTitle,
@@ -3384,6 +3496,12 @@ function WorkspaceScreenContent({
     workspaceHeaderSubtitle,
     isWorkspaceHeaderSubtitleDistinct,
   });
+  const handleCloseActiveNonAgentTab = useActiveNonAgentTabClose({
+    activeTabDescriptor,
+    isRouteFocused,
+    isMobile,
+    onCloseTab: handleCloseTabById,
+  });
 
   const renderWorkspaceScreenHeader = useCallback(
     () =>
@@ -3392,6 +3510,9 @@ function WorkspaceScreenContent({
           left={
             <>
               <SidebarMenuToggle />
+              {handleCloseActiveNonAgentTab ? (
+                <NonAgentTabCloseButton onPress={handleCloseActiveNonAgentTab} />
+              ) : null}
               <WorkspaceHeaderTitleBar
                 isLoading={isWorkspaceHeaderLoading}
                 title={effectiveHeaderTitle}
@@ -3418,6 +3539,7 @@ function WorkspaceScreenContent({
       effectiveHeaderSubtitle,
       effectiveHeaderSubtitleDistinct,
       effectiveHeaderTitle,
+      handleCloseActiveNonAgentTab,
       handleCopyBranchName,
       handleCopyWorkspacePath,
       handleOpenSetupTab,
@@ -3502,6 +3624,7 @@ function WorkspaceScreenContent({
           headerVariant={actionsOnly ? "full" : "compact"}
           isRouteFocused={isRouteFocused}
           isCompact={isMobile}
+          onBack={handleCloseActiveNonAgentTab}
           tabSwitcher={tabSwitcher}
           inDesktopTitlebar={explorerControls.inDesktopTitlebar}
           explorerAction={explorerControls.compactAction}
@@ -3545,6 +3668,7 @@ function WorkspaceScreenContent({
       currentBranchName,
       handleCopyBranchName,
       handleCopyWorkspacePath,
+      handleCloseActiveNonAgentTab,
       handleCreateBrowserTab,
       handleCreateTerminalWithProfile,
       handleOpenSetupTab,
@@ -3739,9 +3863,9 @@ function WorkspaceScreenContent({
           ) : null}
         </AdaptiveWorkspaceChrome>
       )}
-      <View style={styles.centerContent}>
-        <View style={styles.content}>{desktopContent}</View>
-      </View>
+      <WorkspaceNativeSplitRow isWorkspaceFocused={isRouteFocused}>
+        {desktopContent}
+      </WorkspaceNativeSplitRow>
     </DesktopCenterColumnChrome>
   );
 
@@ -4136,6 +4260,25 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
     minHeight: 0,
   },
+  centerContentSplit: {
+    flexDirection: "row",
+  },
+  nonAgentCloseButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    paddingHorizontal: theme.spacing[2],
+    paddingVertical: theme.spacing[1],
+    borderRadius: theme.borderRadius.md,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+  },
+  nonAgentCloseLabel: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
+    color: theme.colors.foreground,
+  },
   tab: {
     paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[2],
@@ -4193,6 +4336,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   content: {
     flex: 1,
+    minWidth: 0,
     minHeight: 0,
     backgroundColor: theme.colors.surface0,
     position: "relative",
