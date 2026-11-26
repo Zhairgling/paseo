@@ -7177,3 +7177,193 @@ test("OpenCode v1 runtime safety retains terminals and busy sessions on its shar
     await parent.close();
   }
 });
+
+describe("OpenCode pinned model preservation across turns and compaction", () => {
+  const logger = createTestLogger();
+  const PINNED_EVO_MODEL =
+    "evo-local//bakeoff/models/Gemma4-26B-A4B-qat-GGUF/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf";
+  const EXPECTED_EVO_MODEL_REF = {
+    providerID: "evo-local",
+    modelID: "/bakeoff/models/Gemma4-26B-A4B-qat-GGUF/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
+  };
+
+  test("re-injects pinned double-slash model on subsequent turns even after compaction with another model", async () => {
+    const cwd = tmpCwd();
+    const runtime = new TestOpenCodeHarness();
+    const openCodeClient = new TestOpenCodeClient();
+    openCodeClient.sessionPromptAsyncEvents = [
+      {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_compaction_summary",
+            sessionID: "session-1",
+            role: "assistant",
+            agent: "compaction",
+            mode: "compaction",
+            summary: true,
+            providerID: "colab",
+            modelID: "smart-auto",
+            time: { created: 1, completed: 2 },
+          },
+        },
+      },
+      {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_asst_1",
+            sessionID: "session-1",
+            role: "assistant",
+            agent: "build",
+            providerID: "evo-local",
+            modelID: EXPECTED_EVO_MODEL_REF.modelID,
+            time: { created: 3, completed: 4 },
+          },
+        },
+      },
+      { type: "session.idle", properties: { sessionID: "session-1" } },
+    ];
+    runtime.enqueueClient(openCodeClient);
+    const client = new OpenCodeAgentClient(logger, undefined, {
+      serverManager: runtime,
+      createClient: runtime.createClient,
+    });
+    try {
+      const session = await client.createSession({
+        provider: "opencode",
+        cwd,
+        model: PINNED_EVO_MODEL,
+      });
+      const seenModelChanges: AgentStreamEvent[] = [];
+      const unsubscribe = session.subscribe((event) => {
+        if (event.type === "model_changed") {
+          seenModelChanges.push(event);
+        }
+      });
+      try {
+        const turn1 = await collectTurnEvents(streamSession(session, "Premier message"));
+        expect(turn1.turnCompleted).toBe(true);
+        expect(seenModelChanges).toEqual([]);
+        expect((await session.getRuntimeInfo()).model).toBe(PINNED_EVO_MODEL);
+
+        const turn2 = await collectTurnEvents(streamSession(session, "Second message via send"));
+        expect(turn2.turnCompleted).toBe(true);
+        expect((await session.getRuntimeInfo()).model).toBe(PINNED_EVO_MODEL);
+
+        expect(openCodeClient.calls.sessionPromptAsync).toHaveLength(2);
+        expect(openCodeClient.calls.sessionPromptAsync[0]).toMatchObject({
+          sessionID: "session-1",
+          model: EXPECTED_EVO_MODEL_REF,
+        });
+        expect(openCodeClient.calls.sessionPromptAsync[1]).toMatchObject({
+          sessionID: "session-1",
+          model: EXPECTED_EVO_MODEL_REF,
+        });
+      } finally {
+        unsubscribe();
+        await session.close();
+      }
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("resumeSession preserves persisted metadata.model when overrides has undefined model", async () => {
+    const cwd = tmpCwd();
+    const runtime = new TestOpenCodeHarness();
+    const openCodeClient = new TestOpenCodeClient();
+    openCodeClient.sessionPromptAsyncEvents = [
+      { type: "session.idle", properties: { sessionID: "ses_resumed_pinned" } },
+    ];
+    runtime.enqueueClient(openCodeClient);
+    const client = new OpenCodeAgentClient(logger, undefined, {
+      serverManager: runtime,
+      createClient: runtime.createClient,
+    });
+    try {
+      const session = await client.resumeSession(
+        {
+          provider: "opencode",
+          sessionId: "ses_resumed_pinned",
+          metadata: { cwd, model: PINNED_EVO_MODEL },
+        },
+        { cwd, model: undefined },
+      );
+      try {
+        expect((await session.getRuntimeInfo()).model).toBe(PINNED_EVO_MODEL);
+        const turn = await collectTurnEvents(streamSession(session, "Relance après resume"));
+        expect(turn.turnCompleted).toBe(true);
+        expect(openCodeClient.calls.sessionPromptAsync).toEqual([
+          expect.objectContaining({
+            sessionID: "ses_resumed_pinned",
+            model: EXPECTED_EVO_MODEL_REF,
+          }),
+        ]);
+      } finally {
+        await session.close();
+      }
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("unpinned session ignores compaction summary model but observes normal assistant model", async () => {
+    const cwd = tmpCwd();
+    const runtime = new TestOpenCodeHarness();
+    const openCodeClient = new TestOpenCodeClient();
+    openCodeClient.sessionPromptAsyncEvents = [
+      {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_compaction_only",
+            sessionID: "session-1",
+            role: "assistant",
+            agent: "compaction",
+            mode: "compaction",
+            summary: true,
+            providerID: "colab",
+            modelID: "smart-auto",
+            time: { created: 1, completed: 2 },
+          },
+        },
+      },
+      {
+        type: "message.updated",
+        properties: {
+          info: {
+            id: "msg_real_asst",
+            sessionID: "session-1",
+            role: "assistant",
+            agent: "build",
+            providerID: "mac",
+            modelID: "qwen3.8-27b-abliterated",
+            time: { created: 3, completed: 4 },
+          },
+        },
+      },
+      { type: "session.idle", properties: { sessionID: "session-1" } },
+    ];
+    runtime.enqueueClient(openCodeClient);
+    const client = new OpenCodeAgentClient(logger, undefined, {
+      serverManager: runtime,
+      createClient: runtime.createClient,
+    });
+    try {
+      const session = await client.createSession({
+        provider: "opencode",
+        cwd,
+      });
+      try {
+        const turn = await collectTurnEvents(streamSession(session, "Turn sans modèle épinglé"));
+        expect(turn.turnCompleted).toBe(true);
+        expect((await session.getRuntimeInfo()).model).toBe("mac/qwen3.8-27b-abliterated");
+      } finally {
+        await session.close();
+      }
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});

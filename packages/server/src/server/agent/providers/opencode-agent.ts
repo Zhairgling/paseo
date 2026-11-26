@@ -1305,10 +1305,38 @@ function resolveOpenCodePersistedSessionModel(
   return model ? buildOpenCodeModelLookupKey(model.providerID, model.modelID) : undefined;
 }
 
+function normalizeConfiguredOpenCodeModel(modelId: string | null | undefined): string | undefined {
+  const lookupKey = parseOpenCodeModelLookupKey(modelId);
+  if (lookupKey) {
+    return lookupKey;
+  }
+  if (typeof modelId !== "string") {
+    return undefined;
+  }
+  const trimmed = modelId.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function isOpenCodeAuxiliaryModelMessage(message: OpenCodeMessage): boolean {
+  if (isOpenCodeCompactionSummaryMessage(message)) {
+    return true;
+  }
+  return (
+    message.role === "assistant" &&
+    (message.agent === "title" ||
+      message.agent === "summary" ||
+      message.mode === "title" ||
+      message.mode === "summary")
+  );
+}
+
 function readOpenCodeMessageModel(
   message: OpenCodeSessionMessage,
 ): { providerID: string; modelID: string } | undefined {
   const { info } = message;
+  if (isOpenCodeAuxiliaryModelMessage(info)) {
+    return undefined;
+  }
   if (info.role === "user") {
     return info.model;
   }
@@ -1534,6 +1562,9 @@ export class OpenCodeAgentClient implements AgentClient {
     const config: AgentSessionConfig = {
       ...metadata,
       ...overrides,
+      ...(overrides?.model === undefined && metadata.model !== undefined
+        ? { model: metadata.model }
+        : {}),
       provider: "opencode",
       cwd,
     };
@@ -3466,6 +3497,7 @@ class OpenCodeAgentSession implements AgentSession {
   private childHydrationCompleted = false;
   private readonly unrelatedSessionIds = new Set<string>();
   private selectedModelContextWindowMaxTokens: number | undefined;
+  private pinnedModel: string | undefined;
   private releaseBridge: (() => void) | null;
   private ingress = Promise.resolve();
   private gapRepairRevision = 0;
@@ -3492,7 +3524,12 @@ class OpenCodeAgentSession implements AgentSession {
     connectServer?: () => Promise<OpenCodeServerConnection>,
     openOptionsPatch: Record<string, unknown> = {},
   ) {
-    this.config = config;
+    const initialModel = normalizeConfiguredOpenCodeModel(config.model);
+    this.pinnedModel = initialModel;
+    this.config = {
+      ...config,
+      model: initialModel,
+    };
     this.openOptionsPatch = openOptionsPatch;
     this.server = {
       client,
@@ -3510,16 +3547,20 @@ class OpenCodeAgentSession implements AgentSession {
     this.releaseBridge = releaseBridge ?? null;
     this.persistSession = persistSession;
     this.selectedModelContextWindowMaxTokens = this.resolveConfiguredModelContextWindowMaxTokens(
-      config.model,
+      this.resolveEffectiveModel(),
     );
     this.subscribeServerEvents();
+  }
+
+  private resolveEffectiveModel(): string | undefined {
+    return this.pinnedModel ?? this.config.model;
   }
 
   usageSession() {
     if (this.closed) return null;
     return {
       provider: "opencode",
-      model: this.config.model,
+      model: this.resolveEffectiveModel(),
       env: this.harnessEnvironment,
       sessionKey: this.usageSessionKey,
     };
@@ -3607,7 +3648,7 @@ class OpenCodeAgentSession implements AgentSession {
     return {
       provider: "opencode",
       sessionId: this.sessionId,
-      model: this.config.model ?? null,
+      model: this.resolveEffectiveModel() ?? null,
       modeId: this.currentMode,
       thinkingOptionId: this.config.thinkingOptionId ?? null,
     };
@@ -3615,8 +3656,7 @@ class OpenCodeAgentSession implements AgentSession {
 
   async setModel(modelId: string | null): Promise<void> {
     await this.reconnectIfServerExited();
-    const normalizedModelId =
-      typeof modelId === "string" && modelId.trim().length > 0 ? modelId : null;
+    const normalizedModelId = normalizeConfiguredOpenCodeModel(modelId) ?? null;
     let variant = this.config.thinkingOptionId;
     if (!normalizedModelId) {
       variant = undefined;
@@ -3630,10 +3670,11 @@ class OpenCodeAgentSession implements AgentSession {
       if (!target) throw new Error(`OpenCode model unavailable: ${normalizedModelId}`);
       if (!Object.hasOwn(target.variants ?? {}, variant)) variant = undefined;
     }
+    this.pinnedModel = normalizedModelId ?? undefined;
     this.config.model = normalizedModelId ?? undefined;
     this.config.thinkingOptionId = variant;
     this.selectedModelContextWindowMaxTokens = this.resolveConfiguredModelContextWindowMaxTokens(
-      this.config.model,
+      this.resolveEffectiveModel(),
     );
     this.notifySubscribers({
       type: "thinking_option_changed",
@@ -3715,7 +3756,7 @@ class OpenCodeAgentSession implements AgentSession {
       this.config.daemonAppendSystemPrompt,
       ...(this.config.pluginAppendSystemPrompt ?? []),
     );
-    const model = this.parseModel(this.config.model);
+    const model = this.parseModel(this.resolveEffectiveModel());
     const effectiveMode = resolveOpenCodeRuntimeAgentId(this.currentMode);
     const effectiveVariant = this.config.thinkingOptionId ?? undefined;
 
@@ -3929,7 +3970,8 @@ class OpenCodeAgentSession implements AgentSession {
     this.pendingUserMessageText = buildOpenCodeUserTimelineText(prompt);
     this.pendingClientMessageId = options?.clientMessageId ?? null;
     this.suppressAssistantMessagesUntilIdle.active = false;
-    const model = this.parseModel(this.config.model);
+    const configuredModel = this.resolveEffectiveModel();
+    const model = this.parseModel(configuredModel);
     const thinkingOptionId = this.config.thinkingOptionId;
     const effectiveVariant = thinkingOptionId ?? undefined;
     const effectiveMode = resolveOpenCodeRuntimeAgentId(this.currentMode);
@@ -3990,7 +4032,7 @@ class OpenCodeAgentSession implements AgentSession {
           command: slashCommand.commandName,
           arguments: slashCommand.args ?? "",
           messageID: this.activeDispatchMessageId,
-          ...(this.config.model ? { model: this.config.model } : {}),
+          ...(configuredModel ? { model: configuredModel } : {}),
           ...(effectiveMode ? { agent: effectiveMode } : {}),
           ...(effectiveVariant ? { variant: effectiveVariant } : {}),
         })
@@ -5089,6 +5131,7 @@ class OpenCodeAgentSession implements AgentSession {
   }
 
   describePersistence(): AgentPersistenceHandle | null {
+    const configuredModel = this.resolveEffectiveModel();
     return {
       provider: "opencode",
       sessionId: this.sessionId,
@@ -5096,7 +5139,7 @@ class OpenCodeAgentSession implements AgentSession {
       metadata: {
         cwd: this.config.cwd,
         ...(this.config.modeId ? { modeId: this.config.modeId } : {}),
-        ...(this.config.model ? { model: this.config.model } : {}),
+        ...(configuredModel ? { model: configuredModel } : {}),
       },
     };
   }
@@ -5223,14 +5266,19 @@ class OpenCodeAgentSession implements AgentSession {
   }
 
   private parseModel(model?: string): { providerID: string; modelID: string } | undefined {
-    if (!model) {
+    const lookupKey = parseOpenCodeModelLookupKey(model);
+    if (lookupKey) {
+      const slashIndex = lookupKey.indexOf("/");
+      return {
+        providerID: lookupKey.slice(0, slashIndex),
+        modelID: lookupKey.slice(slashIndex + 1),
+      };
+    }
+    const trimmed = typeof model === "string" ? model.trim() : "";
+    if (!trimmed) {
       return undefined;
     }
-    const parts = model.split("/");
-    if (parts.length >= 2) {
-      return { providerID: parts[0], modelID: parts.slice(1).join("/") };
-    }
-    return { providerID: "opencode", modelID: model };
+    return { providerID: "opencode", modelID: trimmed };
   }
 
   private async ensureMcpServersConfigured(): Promise<void> {
@@ -5542,6 +5590,9 @@ class OpenCodeAgentSession implements AgentSession {
   private syncRuntimeModel(event: OpenCodeEvent, eventSessionId: string | null): boolean {
     if (event.type !== "message.updated" || eventSessionId !== this.sessionId) return false;
     const info = event.properties.info;
+    if (isOpenCodeAuxiliaryModelMessage(info)) return false;
+    if (this.suppressAssistantMessagesUntilIdle.active && info.role === "assistant") return false;
+    if (this.pinnedModel && !this.externallyDriven) return false;
     let model: string | undefined;
     if (info.role === "assistant") model = resolveOpenCodeModelLookupKeyFromAssistantMessage(info);
     if (info.role === "user" && info.model)
