@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { Platform } from "react-native";
 import { SettingsCard, SettingsSection, SettingsSelect } from "@/components/settings";
 import { useAppSettings, type SendShortcut, type SendBehavior } from "@/hooks/use-settings";
 import { useHardwareKeyboardPresent, supportsConfigurableComposerSendKeys } from "@/keyboard";
@@ -10,7 +11,9 @@ const SEND_BEHAVIORS: readonly SendBehavior[] = ["interrupt", "steer", "queue"];
 export function SendingSection() {
   const { t } = useTranslation();
   const { settings, updateSettings } = useAppSettings();
-  const shortcutsAvailable = useHardwareKeyboardPresent() && supportsConfigurableComposerSendKeys;
+  const shortcutsAvailable =
+    (useHardwareKeyboardPresent() && supportsConfigurableComposerSendKeys) ||
+    Platform.OS === "android";
   const modifier = getShortcutOs() === "mac" ? "⌘" : "Ctrl";
   const options = useMemo(
     () =>

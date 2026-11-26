@@ -111,7 +111,7 @@ export function WorkspacePanelHost({
     activeTabId,
     allTabIds: tabIds,
     retainedTabIds,
-    cap: 3,
+    cap: 6,
   });
   const mountedIds = useMemo(
     () => tabIds.filter((tabId) => mountedTabIds.has(tabId)),

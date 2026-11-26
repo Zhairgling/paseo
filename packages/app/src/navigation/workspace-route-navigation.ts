@@ -179,5 +179,21 @@ function flushPendingIntent(): void {
 
   const { route, deps } = pendingIntent;
   pendingIntent = null;
+
+  const targetSelection = parseHostWorkspaceRouteFromPathname(route);
+  const focusedSelection = getFocusedWorkspaceSelection();
+  const hasOpenParam = getHostWorkspaceOpenParamFromPathname(route) !== null;
+  if (
+    targetSelection &&
+    focusedSelection &&
+    !hasOpenParam &&
+    targetSelection.serverId === focusedSelection.serverId &&
+    targetSelection.workspaceId === focusedSelection.workspaceId
+  ) {
+    // Already focused on this workspace: tab state was updated in-memory by openTab/revealTab,
+    // so skip redundant React Navigation POP_TO/dismissTo churn when switching conversations.
+    return;
+  }
+
   if (!dispatchHostWorkspacePopTo(route, navigation)) deps.dismissTo(route);
 }

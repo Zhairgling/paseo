@@ -9,6 +9,7 @@ import type { Href } from "expo-router";
 import {
   buildHostRootRoute,
   buildHostWorkspaceRoute,
+  buildInboxRoute,
   buildOpenProjectRoute,
 } from "@/utils/host-routes";
 
@@ -158,7 +159,11 @@ export function resolveHostIndexRoute(input: {
   serverId: string;
   workspaceSelection: ActiveWorkspaceSelection | null;
   workspaceSelectionStatus: WorkspaceSelectionStatus;
+  startOnInbox?: boolean;
 }): Href {
+  if (input.startOnInbox) {
+    return buildInboxRoute();
+  }
   if (
     input.workspaceSelection?.serverId === input.serverId &&
     shouldRestoreWorkspaceSelection(input)

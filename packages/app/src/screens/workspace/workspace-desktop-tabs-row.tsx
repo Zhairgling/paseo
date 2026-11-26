@@ -1,4 +1,5 @@
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { useAppSettings } from "@/hooks/use-settings";
 import React, {
   Fragment,
   createContext,
@@ -1012,6 +1013,7 @@ export function useWorkspaceNewTabKeyboardAction({
 }
 
 export function WorkspaceDesktopTabsRow(props: WorkspaceDesktopTabsRowProps) {
+  const { settings } = useAppSettings();
   const [presentations, setPresentations] = useState(
     () => new Map<string, WorkspaceTabPresentation>(),
   );
@@ -1053,6 +1055,10 @@ export function WorkspaceDesktopTabsRow(props: WorkspaceDesktopTabsRowProps) {
       }),
     [presentations, props.tabs],
   );
+
+  if (settings.sessionMinimalHeader && props.host !== "explorer") {
+    return null;
+  }
 
   return (
     <>

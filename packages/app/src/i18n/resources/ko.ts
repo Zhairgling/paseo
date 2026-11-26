@@ -2795,6 +2795,25 @@ export const ko: TranslationResources = {
         description: "프롬프트 사이를 이동하기 위한 개요 표시",
       },
       sidebar: {
+        sessionMode: {
+          title: "Session Mode",
+          description: "Tailor the interface for conversation-first navigation like Claude Code.",
+          showWorkspaces: {
+            label: "Show Workspaces",
+            description:
+              "Show the Projects/Workspaces tree. When off, Pinned holds pinned conversations and Recent sessions fills the sidebar.",
+          },
+          minimalHeader: {
+            label: "Minimal session header",
+            description:
+              "Hide the workspace tab strip and display the active conversation title at the top of the chat.",
+          },
+          startOnInbox: {
+            label: "Start on All Sessions",
+            description:
+              "Land directly on the chronological sessions list on app launch instead of Open Project.",
+          },
+        },
         view: {
           title: "사이드바 보기",
           label: "보기",

@@ -10,7 +10,8 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { PressHighlight } from "@/components/ui/press-highlight";
 import { SearchField } from "@/components/ui/search-field";
 import { useAggregatedAgents, type AggregatedAgent } from "@/hooks/use-aggregated-agents";
-import { buildHostAgentDetailRoute, buildNewWorkspaceRoute } from "@/utils/host-routes";
+import { buildNewWorkspaceRoute } from "@/utils/host-routes";
+import { navigateToAgent } from "@/utils/navigate-to-agent";
 
 type InboxFilter = "active" | "running" | "attention" | "all";
 type SessionStateKind = "permission" | "running" | "attention" | "idle" | "archived";
@@ -163,7 +164,12 @@ function InboxScreenContent(): ReactElement {
   }, []);
 
   const handleOpenAgent = useCallback((agent: AggregatedAgent) => {
-    router.push(buildHostAgentDetailRoute(agent.serverId, agent.id, agent.workspaceId));
+    navigateToAgent({
+      serverId: agent.serverId,
+      agentId: agent.id,
+      workspaceId: agent.workspaceId,
+      pin: true,
+    });
   }, []);
 
   const handleShowAll = useCallback(() => {

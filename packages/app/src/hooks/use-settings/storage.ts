@@ -110,6 +110,12 @@ export interface AppSettings {
   sidebarNavItems: SidebarNavPreference[];
   /** Sidebar footer items in display order; empty means the default order, all visible. */
   sidebarFooterItems: SidebarNavPreference[];
+  /** Whether to show the Workspaces tree in the sidebar (false = session-first Atelier mode). */
+  sidebarShowWorkspaces: boolean;
+  /** Whether to hide the workspace tab strip and show a clean 1-line session title header. */
+  sessionMinimalHeader: boolean;
+  /** Whether cold launch lands directly on All Sessions (/inbox) instead of Open Project. */
+  startOnInbox: boolean;
   /** How usage reads and which windows the sidebar summary shows. */
   usage: UsagePreferences;
   autoExpandReasoning: boolean;
@@ -170,6 +176,9 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   sidebarPluginRowBadgeItems: {},
   sidebarNavItems: [],
   sidebarFooterItems: [],
+  sidebarShowWorkspaces: false,
+  sessionMinimalHeader: true,
+  startOnInbox: true,
   usage: DEFAULT_USAGE_PREFERENCES,
   autoExpandReasoning: false,
   chatDisplay: "collapseTurns",
@@ -271,6 +280,9 @@ const StoredAppSettingsSchema = z
     sidebarPluginRowBadgeItems: z.record(z.string(), z.boolean()).catch({}),
     sidebarNavItems: z.array(z.object({ key: z.string(), visible: z.boolean() })).catch([]),
     sidebarFooterItems: z.array(z.object({ key: z.string(), visible: z.boolean() })).catch([]),
+    sidebarShowWorkspaces: z.boolean().catch(false),
+    sessionMinimalHeader: z.boolean().catch(true),
+    startOnInbox: z.boolean().catch(true),
     usage: UsagePreferencesSchema,
     autoExpandReasoning: z.boolean().catch(false),
     chatDisplay: z.enum(["full", "collapseToolCalls", "collapseTurns"]).optional().catch("full"),

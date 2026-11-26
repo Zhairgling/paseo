@@ -20,6 +20,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { Button } from "@/components/ui/button";
 import { Shortcut } from "@/components/ui/shortcut";
 import { Switch } from "@/components/ui/switch";
+import { useAppSettings } from "@/hooks/use-settings";
 import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
 import {
@@ -184,10 +185,94 @@ function SidebarItemsCard({ section }: { section: SidebarSection }): ReactElemen
   );
 }
 
+function SessionModeCard(): ReactElement {
+  const { t } = useTranslation();
+  const { settings, updateSettings } = useAppSettings();
+
+  const handleToggleWorkspaces = useCallback(
+    (sidebarShowWorkspaces: boolean) => {
+      void updateSettings({ sidebarShowWorkspaces });
+    },
+    [updateSettings],
+  );
+  const handleToggleMinimalHeader = useCallback(
+    (sessionMinimalHeader: boolean) => {
+      void updateSettings({ sessionMinimalHeader });
+    },
+    [updateSettings],
+  );
+  const handleToggleStartOnInbox = useCallback(
+    (startOnInbox: boolean) => {
+      void updateSettings({ startOnInbox });
+    },
+    [updateSettings],
+  );
+
+  return (
+    <SettingsSection
+      title={t("settings.appearance.sidebar.sessionMode.title")}
+      info={t("settings.appearance.sidebar.sessionMode.description")}
+      testID="sidebar-session-mode-section"
+    >
+      <View style={settingsStyles.card}>
+        <View style={[settingsStyles.row, styles.row]}>
+          <View style={styles.toggleTextCol}>
+            <Text style={settingsStyles.rowTitle}>
+              {t("settings.appearance.sidebar.sessionMode.showWorkspaces.label")}
+            </Text>
+            <Text style={settingsStyles.rowHint}>
+              {t("settings.appearance.sidebar.sessionMode.showWorkspaces.description")}
+            </Text>
+          </View>
+          <Switch
+            value={settings.sidebarShowWorkspaces}
+            onValueChange={handleToggleWorkspaces}
+            accessibilityLabel={t("settings.appearance.sidebar.sessionMode.showWorkspaces.label")}
+            testID="sidebar-toggle-show-workspaces"
+          />
+        </View>
+        <View style={[settingsStyles.row, settingsStyles.rowBorder, styles.row]}>
+          <View style={styles.toggleTextCol}>
+            <Text style={settingsStyles.rowTitle}>
+              {t("settings.appearance.sidebar.sessionMode.minimalHeader.label")}
+            </Text>
+            <Text style={settingsStyles.rowHint}>
+              {t("settings.appearance.sidebar.sessionMode.minimalHeader.description")}
+            </Text>
+          </View>
+          <Switch
+            value={settings.sessionMinimalHeader}
+            onValueChange={handleToggleMinimalHeader}
+            accessibilityLabel={t("settings.appearance.sidebar.sessionMode.minimalHeader.label")}
+            testID="sidebar-toggle-minimal-header"
+          />
+        </View>
+        <View style={[settingsStyles.row, settingsStyles.rowBorder, styles.row]}>
+          <View style={styles.toggleTextCol}>
+            <Text style={settingsStyles.rowTitle}>
+              {t("settings.appearance.sidebar.sessionMode.startOnInbox.label")}
+            </Text>
+            <Text style={settingsStyles.rowHint}>
+              {t("settings.appearance.sidebar.sessionMode.startOnInbox.description")}
+            </Text>
+          </View>
+          <Switch
+            value={settings.startOnInbox}
+            onValueChange={handleToggleStartOnInbox}
+            accessibilityLabel={t("settings.appearance.sidebar.sessionMode.startOnInbox.label")}
+            testID="sidebar-toggle-start-on-inbox"
+          />
+        </View>
+      </View>
+    </SettingsSection>
+  );
+}
+
 /** Settings > Sidebar: one card per section. The footer's bottom line is fixed and not listed. */
 export function SidebarNavSection(): ReactElement {
   return (
     <>
+      <SessionModeCard />
       <SidebarViewPicker />
       <SidebarItemsCard section="header" />
       <SidebarItemsCard section="footer" />
@@ -198,6 +283,11 @@ export function SidebarNavSection(): ReactElement {
 const styles = StyleSheet.create((theme) => ({
   row: {
     gap: theme.spacing[2],
+  },
+  toggleTextCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
   },
   rowMain: {
     flex: 1,

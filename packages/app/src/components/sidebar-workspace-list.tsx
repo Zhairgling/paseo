@@ -164,6 +164,7 @@ import { OpenInFileManagerMenuItem } from "@/workspace/open-in-file-manager/menu
 import { useLocalDaemonServerId } from "@/hooks/use-is-local-daemon";
 import type { HostBadgeModel } from "@/hosts/appearance";
 import { useHostBadges } from "@/hosts/use-host-badges";
+import { useAppSettings } from "@/hooks/use-settings";
 import { useSidebarRowItems } from "@/components/sidebar/display-preferences/model";
 import { PullRequestStateIcon } from "@/git/pull-request-state-icon";
 import { bySizing } from "@/components/ui/control-geometry";
@@ -2131,6 +2132,7 @@ function SidebarGroupedModeList({
   parentGestureRef?: MutableRefObject<GestureType | undefined>;
   dragGestureHostActive?: boolean;
 }) {
+  const { settings } = useAppSettings();
   const showShortcutBadges = useShowShortcutBadges();
   const pinnedWorkspaces = useMemo(
     () =>
@@ -2140,6 +2142,26 @@ function SidebarGroupedModeList({
       }),
     [pinnedGroups.pinnedChats, workspaceEntriesByKey],
   );
+
+  if (!settings.sidebarShowWorkspaces) {
+    return (
+      <View style={styles.container}>
+        <ScrollView
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          testID="sidebar-sessions-only-scroll"
+        >
+          <SidebarRecentSessionsSection
+            onSessionPress={onWorkspacePress}
+            showPinnedConversations
+            expandedDefault
+          />
+          <SidebarToastClearance />
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
     <SidebarStatusWorkspaceList
@@ -2580,6 +2602,9 @@ function ProjectModeList({
     [renderPinnedChatRow],
   );
 
+  const { settings } = useAppSettings();
+  const showWorkspaces = settings.sidebarShowWorkspaces;
+
   const projectBody =
     projects.length === 0 ? (
       <SidebarProjectEmptyState onAddProject={onAddProject} onImportSession={onImportSession} />
@@ -2604,7 +2629,7 @@ function ProjectModeList({
 
   const content = (
     <>
-      {pinnedChats.length > 0 ? (
+      {showWorkspaces && pinnedChats.length > 0 ? (
         <View style={styles.pinnedSection} testID="sidebar-pinned-section">
           <SidebarSectionHeader
             title={t("sidebar.pinned.title")}
@@ -2640,20 +2665,19 @@ function ProjectModeList({
           )}
         </View>
       ) : null}
-      <SidebarRecentSessionsSection onSessionPress={onWorkspacePress} />
-      {/* The header carries the display menu, which is the only way back out of a filter, so it
-        stays for as long as a filter is what emptied the list. It is absent only when the
-        sidebar is genuinely empty, where a section heading would sit over nothing.
-        Every filter that can empty this branch needs a term here: a project filter pinned to a
-        project whose chats are all pinned leaves `unpinnedProjects` empty, and without its term
-        the header would go with it, taking the only route back to the filter page. */}
-      {unpinnedProjects.length > 0 ||
-      hasActiveHostFilter ||
-      hasActiveProjectFilter ||
-      sidebarFilterEmpty
+      <SidebarRecentSessionsSection
+        onSessionPress={onWorkspacePress}
+        showPinnedConversations={!showWorkspaces}
+        expandedDefault={!showWorkspaces}
+      />
+      {showWorkspaces &&
+      (unpinnedProjects.length > 0 ||
+        hasActiveHostFilter ||
+        hasActiveProjectFilter ||
+        sidebarFilterEmpty)
         ? listHeaderComponent
         : null}
-      {workspacesCollapsed ? null : workspacesSectionBody}
+      {showWorkspaces && !workspacesCollapsed ? workspacesSectionBody : null}
       {listFooterComponent}
       <SidebarToastClearance />
     </>

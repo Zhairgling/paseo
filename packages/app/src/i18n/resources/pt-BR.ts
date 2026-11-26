@@ -2827,6 +2827,25 @@ export const ptBR: TranslationResources = {
         description: "Mostrar uma estrutura para navegar entre prompts",
       },
       sidebar: {
+        sessionMode: {
+          title: "Session Mode",
+          description: "Tailor the interface for conversation-first navigation like Claude Code.",
+          showWorkspaces: {
+            label: "Show Workspaces",
+            description:
+              "Show the Projects/Workspaces tree. When off, Pinned holds pinned conversations and Recent sessions fills the sidebar.",
+          },
+          minimalHeader: {
+            label: "Minimal session header",
+            description:
+              "Hide the workspace tab strip and display the active conversation title at the top of the chat.",
+          },
+          startOnInbox: {
+            label: "Start on All Sessions",
+            description:
+              "Land directly on the chronological sessions list on app launch instead of Open Project.",
+          },
+        },
         view: {
           title: "Visualização da barra lateral",
           label: "Visualização",

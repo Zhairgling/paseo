@@ -2845,6 +2845,25 @@ export const fr: TranslationResources = {
         description: "Afficher un plan pour naviguer entre les prompts",
       },
       sidebar: {
+        sessionMode: {
+          title: "Mode Sessions",
+          description: "Adapte l’interface pour naviguer par conversations façon Claude Code.",
+          showWorkspaces: {
+            label: "Afficher les Workspaces",
+            description:
+              "Affiche l’arborescence Projets/Workspaces. Désactivé, Épinglés gère vos conversations épinglées et Dernières sessions occupe la barre latérale.",
+          },
+          minimalHeader: {
+            label: "En-tête épuré orienté session",
+            description:
+              "Masque la barre d’onglets du workspace et affiche le titre de la conversation active en haut du chat.",
+          },
+          startOnInbox: {
+            label: "Ouvrir sur Toutes les sessions",
+            description:
+              "Affiche directement la liste chronologique des sessions au lancement de l’application.",
+          },
+        },
         view: {
           title: "Vue de la barre latérale",
           label: "Vue",

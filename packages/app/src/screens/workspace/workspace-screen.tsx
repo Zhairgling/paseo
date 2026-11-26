@@ -11,6 +11,7 @@ import {
   type InlinePathTarget,
 } from "@/assistant-file-links";
 import { useFileExplorerActions } from "@/hooks/use-file-explorer-actions";
+import { useAppSettings } from "@/hooks/use-settings";
 import { useWindowLayout, resolveWorkspaceActionPlacement } from "@/window-layout";
 import { revealWorkspaceTab } from "@/workspace-tabs/navigation";
 import { ExplorerSidebarDock } from "@/screens/workspace/explorer-sidebar";
@@ -656,6 +657,58 @@ function buildWorkspaceHeaderCheckoutState(input: {
       currentBranch: input.data.currentBranch,
     },
   };
+}
+
+function resolveActiveHeaderAgentId(tab: WorkspaceTabDescriptor | null): string | null {
+  if (!tab) return null;
+  if (tab.target.kind === "agent") return tab.target.agentId;
+  if (tab.target.kind === "provider_subagent") return tab.target.parentAgentId;
+  return null;
+}
+
+function useEffectiveWorkspaceHeader(input: {
+  activeTabDescriptor: WorkspaceTabDescriptor | null;
+  normalizedServerId: string;
+  workspaceHeaderTitle: string;
+  workspaceHeaderSubtitle: string;
+  isWorkspaceHeaderSubtitleDistinct: boolean;
+}) {
+  const { settings } = useAppSettings();
+  const agentId = resolveActiveHeaderAgentId(input.activeTabDescriptor);
+  const activeSessionAgent = useSessionStore((state) => {
+    if (!settings.sessionMinimalHeader || !agentId || !input.normalizedServerId) {
+      return null;
+    }
+    return state.sessions[input.normalizedServerId]?.agents.get(agentId) ?? null;
+  });
+
+  return useMemo(() => {
+    if (!settings.sessionMinimalHeader || !activeSessionAgent) {
+      return {
+        title: input.workspaceHeaderTitle,
+        subtitle: input.workspaceHeaderSubtitle,
+        isSubtitleDistinct: input.isWorkspaceHeaderSubtitleDistinct,
+      };
+    }
+    const title =
+      activeSessionAgent.title?.trim() || `Session ${activeSessionAgent.id.slice(0, 7)}`;
+    const cleaned = activeSessionAgent.cwd.replace(/[\\/]+$/, "");
+    const parts = cleaned.split(/[\\/]/).filter(Boolean);
+    const repo = parts[parts.length - 1] ?? input.workspaceHeaderSubtitle;
+    const provider = activeSessionAgent.provider?.trim();
+    const subtitle = provider ? `${repo} · ${provider}` : repo;
+    return {
+      title,
+      subtitle,
+      isSubtitleDistinct: subtitle.length > 0,
+    };
+  }, [
+    activeSessionAgent,
+    input.isWorkspaceHeaderSubtitleDistinct,
+    input.workspaceHeaderSubtitle,
+    input.workspaceHeaderTitle,
+    settings.sessionMinimalHeader,
+  ]);
 }
 
 function deriveWorkspaceHeaderFields(input: {
@@ -3070,7 +3123,7 @@ function WorkspaceScreenContent({
     activeTabId,
     allTabIds: focusedPaneTabIds,
     retainedTabIds: modifiedFocusedPaneTabIds,
-    cap: 3,
+    cap: 6,
   });
   const mountedFocusedPaneTabIds = useMemo(
     () => focusedPaneTabIds.filter((tabId) => mountedFocusedPaneTabIdsSet.has(tabId)),
@@ -3320,6 +3373,18 @@ function WorkspaceScreenContent({
       `${WORKSPACE_FLOATING_PANEL_PORTAL_HOST_PREFIX}:${normalizedServerId}:${normalizedWorkspaceId}`,
     [normalizedServerId, normalizedWorkspaceId],
   );
+  const {
+    title: effectiveHeaderTitle,
+    subtitle: effectiveHeaderSubtitle,
+    isSubtitleDistinct: effectiveHeaderSubtitleDistinct,
+  } = useEffectiveWorkspaceHeader({
+    activeTabDescriptor,
+    normalizedServerId,
+    workspaceHeaderTitle,
+    workspaceHeaderSubtitle,
+    isWorkspaceHeaderSubtitleDistinct,
+  });
+
   const renderWorkspaceScreenHeader = useCallback(
     () =>
       showScreenHeader ? (
@@ -3329,9 +3394,9 @@ function WorkspaceScreenContent({
               <SidebarMenuToggle />
               <WorkspaceHeaderTitleBar
                 isLoading={isWorkspaceHeaderLoading}
-                title={workspaceHeaderTitle}
-                subtitle={workspaceHeaderSubtitle}
-                isSubtitleDistinct={isWorkspaceHeaderSubtitleDistinct}
+                title={effectiveHeaderTitle}
+                subtitle={effectiveHeaderSubtitle}
+                isSubtitleDistinct={effectiveHeaderSubtitleDistinct}
                 currentBranchName={currentBranchName}
                 normalizedServerId={normalizedServerId}
                 showWorkspaceSetup={showWorkspaceSetup}
@@ -3350,6 +3415,9 @@ function WorkspaceScreenContent({
     [
       canOpenImportSheet,
       currentBranchName,
+      effectiveHeaderSubtitle,
+      effectiveHeaderSubtitleDistinct,
+      effectiveHeaderTitle,
       handleCopyBranchName,
       handleCopyWorkspacePath,
       handleOpenSetupTab,
@@ -3360,9 +3428,6 @@ function WorkspaceScreenContent({
       showScreenHeader,
       showWorkspaceSetup,
       workspaceDirectory,
-      workspaceHeaderSubtitle,
-      workspaceHeaderTitle,
-      isWorkspaceHeaderSubtitleDistinct,
     ],
   );
   const compactHeaderScripts = useMemo(
@@ -3441,9 +3506,9 @@ function WorkspaceScreenContent({
           inDesktopTitlebar={explorerControls.inDesktopTitlebar}
           explorerAction={explorerControls.compactAction}
           isLoading={isWorkspaceHeaderLoading}
-          title={workspaceHeaderTitle}
-          subtitle={workspaceHeaderSubtitle}
-          isSubtitleDistinct={isWorkspaceHeaderSubtitleDistinct}
+          title={effectiveHeaderTitle}
+          subtitle={effectiveHeaderSubtitle}
+          isSubtitleDistinct={effectiveHeaderSubtitleDistinct}
           serverId={normalizedServerId}
         >
           <WorkspaceHeaderMenuMobile
@@ -3486,15 +3551,15 @@ function WorkspaceScreenContent({
       isMobile,
       isRouteFocused,
       isWorkspaceHeaderLoading,
-      isWorkspaceHeaderSubtitleDistinct,
+      effectiveHeaderSubtitleDistinct,
       normalizedServerId,
       normalizedWorkspaceId,
       openImportSheet,
       showCreateBrowserTab,
       showWorkspaceSetup,
       workspaceDirectory,
-      workspaceHeaderSubtitle,
-      workspaceHeaderTitle,
+      effectiveHeaderSubtitle,
+      effectiveHeaderTitle,
     ],
   );
   const workspaceCompactHeaderTabs = {

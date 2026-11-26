@@ -1,4 +1,5 @@
 import { Redirect } from "expo-router";
+import { useAppSettings } from "@/hooks/use-settings";
 import { useHostRouteServerId } from "@/navigation/host-route-context";
 import {
   resolveHostIndexRoute,
@@ -12,6 +13,7 @@ import {
 } from "@/stores/navigation-active-workspace-store";
 
 export default function HostIndexRoute() {
+  const { settings } = useAppSettings();
   const serverId = useHostRouteServerId();
   const workspaceSelection = useLastWorkspaceSelection();
   const isWorkspaceSelectionLoaded = useIsLastWorkspaceSelectionHydrated();
@@ -33,6 +35,7 @@ export default function HostIndexRoute() {
           hasHydratedWorkspaces,
           workspaceExists: workspaceSelectionExists,
         }),
+        startOnInbox: settings.startOnInbox,
       })}
     />
   );

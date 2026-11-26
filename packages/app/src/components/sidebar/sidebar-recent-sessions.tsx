@@ -1,18 +1,33 @@
-import { router, usePathname } from "expo-router";
+import { router } from "expo-router";
+import { Pin } from "lucide-react-native";
 import { memo, useCallback, useMemo, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
-import { StyleSheet } from "react-native-unistyles";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { SidebarGroupToggleRow } from "@/components/sidebar/sidebar-group-toggle-row";
 import { SidebarSectionHeader } from "@/components/sidebar/sidebar-section-header";
 import { PressHighlight } from "@/components/ui/press-highlight";
+import { useActiveSessionAgentId } from "@/hooks/use-active-session-agent-id";
 import { useAggregatedAgents, type AggregatedAgent } from "@/hooks/use-aggregated-agents";
+import { buildPinnedSessionKey, usePinnedSessionsStore } from "@/stores/pinned-sessions-store";
 import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
-import { buildHostAgentDetailRoute, buildInboxRoute } from "@/utils/host-routes";
+import type { Theme } from "@/styles/theme";
+import { buildInboxRoute } from "@/utils/host-routes";
+import { navigateToAgent } from "@/utils/navigate-to-agent";
 
-const DEFAULT_VISIBLE_COUNT = 6;
+const COMPACT_VISIBLE_COUNT = 6;
+const EXPANDED_DEFAULT_VISIBLE_COUNT = 20;
+const EXPANDED_MAX_VISIBLE_COUNT = 50;
 
 type SessionDotKind = "permission" | "running" | "attention" | "idle";
+
+const ThemedPinMuted = withUnistyles(Pin, (theme: Theme) => ({
+  color: theme.colors.foregroundExtraMuted,
+}));
+
+const ThemedPinActive = withUnistyles(Pin, (theme: Theme) => ({
+  color: theme.colors.accent,
+}));
 
 function repoNameFromCwd(cwd: string): string {
   const cleaned = cwd.replace(/[\\/]+$/, "");
@@ -46,24 +61,57 @@ function dotStyleFor(kind: SessionDotKind) {
 
 export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsSection({
   onSessionPress,
+  showPinnedConversations = false,
+  expandedDefault = false,
 }: {
   onSessionPress?: () => void;
+  showPinnedConversations?: boolean;
+  expandedDefault?: boolean;
 }): ReactElement | null {
   const { t } = useTranslation();
-  const pathname = usePathname();
+  const activeAgentId = useActiveSessionAgentId();
   const { agents } = useAggregatedAgents({ includeArchived: false });
   const collapsed = useSidebarCollapsedSectionsStore((state) => state.collapsedRecentSessions);
   const toggleCollapsed = useSidebarCollapsedSectionsStore(
     (state) => state.toggleRecentSessionsCollapsed,
   );
+  const pinnedCollapsed = useSidebarCollapsedSectionsStore((state) => state.collapsedPinned);
+  const togglePinnedCollapsed = useSidebarCollapsedSectionsStore(
+    (state) => state.togglePinnedCollapsed,
+  );
+  const pinnedKeys = usePinnedSessionsStore((state) => state.pinnedKeys);
+  const togglePinSession = usePinnedSessionsStore((state) => state.togglePinSession);
   const [expanded, setExpanded] = useState(false);
 
-  const recentAgents = useMemo(() => {
+  const pinnedKeySet = useMemo(() => new Set(pinnedKeys), [pinnedKeys]);
+
+  const { pinnedAgents, unpinnedAgents } = useMemo(() => {
     const active = agents.filter((agent) => agent.status !== "closed");
     const list = active.length > 0 ? [...active] : [...agents];
     list.sort((a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime());
-    return list;
-  }, [agents]);
+
+    if (!showPinnedConversations) {
+      return { pinnedAgents: [] as AggregatedAgent[], unpinnedAgents: list };
+    }
+
+    const byKey = new Map<string, AggregatedAgent>();
+    for (const agent of list) {
+      byKey.set(buildPinnedSessionKey(agent.serverId, agent.id), agent);
+    }
+
+    const pinned: AggregatedAgent[] = [];
+    for (const key of pinnedKeys) {
+      const match = byKey.get(key);
+      if (match) {
+        pinned.push(match);
+      }
+    }
+
+    const unpinned = list.filter(
+      (agent) => !pinnedKeySet.has(buildPinnedSessionKey(agent.serverId, agent.id)),
+    );
+    return { pinnedAgents: pinned, unpinnedAgents: unpinned };
+  }, [agents, pinnedKeySet, pinnedKeys, showPinnedConversations]);
 
   const handleToggleExpanded = useCallback(() => {
     setExpanded((prev) => !prev);
@@ -77,72 +125,122 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
   const handleOpenAgent = useCallback(
     (agent: AggregatedAgent) => {
       onSessionPress?.();
-      router.push(buildHostAgentDetailRoute(agent.serverId, agent.id, agent.workspaceId));
+      navigateToAgent({
+        serverId: agent.serverId,
+        agentId: agent.id,
+        workspaceId: agent.workspaceId,
+        pin: true,
+      });
     },
     [onSessionPress],
   );
 
-  if (recentAgents.length === 0) {
+  const handleTogglePin = useCallback(
+    (agent: AggregatedAgent) => {
+      togglePinSession(agent.serverId, agent.id);
+    },
+    [togglePinSession],
+  );
+
+  if (pinnedAgents.length === 0 && unpinnedAgents.length === 0) {
     return null;
   }
 
+  const baseLimit = expandedDefault ? EXPANDED_DEFAULT_VISIBLE_COUNT : COMPACT_VISIBLE_COUNT;
   const visibleAgents = expanded
-    ? recentAgents.slice(0, 18)
-    : recentAgents.slice(0, DEFAULT_VISIBLE_COUNT);
-  const canToggleMore = recentAgents.length > DEFAULT_VISIBLE_COUNT;
+    ? unpinnedAgents.slice(0, EXPANDED_MAX_VISIBLE_COUNT)
+    : unpinnedAgents.slice(0, baseLimit);
+  const canToggleMore = unpinnedAgents.length > baseLimit;
 
   return (
-    <View style={styles.section} testID="sidebar-recent-sessions-section">
-      <SidebarSectionHeader
-        title={t("sidebar.recentSessions.title")}
-        collapsed={collapsed}
-        onToggle={toggleCollapsed}
-        testID="sidebar-recent-sessions-header"
-      >
-        <PressHighlight
-          onPress={handleOpenInbox}
-          style={styles.viewAllButton}
-          testID="sidebar-recent-sessions-view-all"
-        >
-          <Text style={styles.viewAllText}>{t("sidebar.recentSessions.viewAll")}</Text>
-        </PressHighlight>
-      </SidebarSectionHeader>
-
-      {collapsed ? null : (
-        <View style={styles.list}>
-          {visibleAgents.map((agent) => (
-            <RecentSessionRow
-              key={`${agent.serverId}:${agent.id}`}
-              agent={agent}
-              isActive={pathname.includes(agent.id)}
-              onPress={handleOpenAgent}
-            />
-          ))}
-          {canToggleMore ? (
-            <SidebarGroupToggleRow
-              expanded={expanded}
-              onPress={handleToggleExpanded}
-              testID="sidebar-recent-sessions-show-more"
-            />
-          ) : null}
+    <>
+      {showPinnedConversations && pinnedAgents.length > 0 ? (
+        <View style={styles.section} testID="sidebar-pinned-sessions-section">
+          <SidebarSectionHeader
+            title={t("sidebar.pinned.title")}
+            collapsed={pinnedCollapsed}
+            onToggle={togglePinnedCollapsed}
+            testID="sidebar-pinned-sessions-header"
+          />
+          {pinnedCollapsed ? null : (
+            <View style={styles.list}>
+              {pinnedAgents.map((agent) => (
+                <RecentSessionRow
+                  key={`pinned:${agent.serverId}:${agent.id}`}
+                  agent={agent}
+                  isActive={activeAgentId === agent.id}
+                  isPinned
+                  onPress={handleOpenAgent}
+                  onTogglePin={handleTogglePin}
+                />
+              ))}
+            </View>
+          )}
         </View>
-      )}
-    </View>
+      ) : null}
+
+      <View style={styles.section} testID="sidebar-recent-sessions-section">
+        <SidebarSectionHeader
+          title={t("sidebar.recentSessions.title")}
+          collapsed={collapsed}
+          onToggle={toggleCollapsed}
+          testID="sidebar-recent-sessions-header"
+        >
+          <PressHighlight
+            onPress={handleOpenInbox}
+            style={styles.viewAllButton}
+            testID="sidebar-recent-sessions-view-all"
+          >
+            <Text style={styles.viewAllText}>{t("sidebar.recentSessions.viewAll")}</Text>
+          </PressHighlight>
+        </SidebarSectionHeader>
+
+        {collapsed ? null : (
+          <View style={styles.list}>
+            {visibleAgents.map((agent) => (
+              <RecentSessionRow
+                key={`${agent.serverId}:${agent.id}`}
+                agent={agent}
+                isActive={activeAgentId === agent.id}
+                isPinned={pinnedKeySet.has(buildPinnedSessionKey(agent.serverId, agent.id))}
+                onPress={handleOpenAgent}
+                onTogglePin={handleTogglePin}
+              />
+            ))}
+            {canToggleMore ? (
+              <SidebarGroupToggleRow
+                expanded={expanded}
+                onPress={handleToggleExpanded}
+                testID="sidebar-recent-sessions-show-more"
+              />
+            ) : null}
+          </View>
+        )}
+      </View>
+    </>
   );
 });
 
 const RecentSessionRow = memo(function RecentSessionRow({
   agent,
   isActive,
+  isPinned,
   onPress,
+  onTogglePin,
 }: {
   agent: AggregatedAgent;
   isActive: boolean;
+  isPinned: boolean;
   onPress: (agent: AggregatedAgent) => void;
+  onTogglePin: (agent: AggregatedAgent) => void;
 }) {
   const handlePress = useCallback(() => {
     onPress(agent);
   }, [agent, onPress]);
+
+  const handlePinPress = useCallback(() => {
+    onTogglePin(agent);
+  }, [agent, onTogglePin]);
 
   const kind = classifyDotKind(agent);
   const title = agent.title?.trim() || `Session ${agent.id.slice(0, 7)}`;
@@ -151,30 +249,41 @@ const RecentSessionRow = memo(function RecentSessionRow({
   const perms = agent.pendingPermissionCount ?? 0;
 
   return (
-    <PressHighlight
-      onPress={handlePress}
-      style={[styles.row, isActive && styles.rowActive]}
-      testID={`sidebar-recent-session-${agent.id}`}
-    >
-      <View style={[styles.dot, dotStyleFor(kind)]} />
-      <View style={styles.rowCenter}>
-        <Text style={[styles.rowTitle, isActive && styles.rowTitleActive]} numberOfLines={1}>
-          {title}
-        </Text>
-        {repo ? (
-          <Text style={styles.rowRepo} numberOfLines={1}>
-            {repo}
+    <View style={[styles.rowOuter, isActive && styles.rowOuterActive]}>
+      <PressHighlight
+        onPress={handlePress}
+        style={styles.rowMainPress}
+        testID={`sidebar-recent-session-${agent.id}`}
+      >
+        <View style={[styles.dot, dotStyleFor(kind)]} />
+        <View style={styles.rowCenter}>
+          <Text style={[styles.rowTitle, isActive && styles.rowTitleActive]} numberOfLines={1}>
+            {title}
           </Text>
-        ) : null}
-      </View>
-      {perms > 0 ? (
-        <View style={styles.permPill}>
-          <Text style={styles.permPillText}>{perms}</Text>
+          {repo ? (
+            <Text style={[styles.rowRepo, isActive && styles.rowRepoActive]} numberOfLines={1}>
+              {repo}
+            </Text>
+          ) : null}
         </View>
-      ) : (
-        <Text style={styles.rowAge}>{age}</Text>
-      )}
-    </PressHighlight>
+        {perms > 0 ? (
+          <View style={styles.permPill}>
+            <Text style={styles.permPillText}>{perms}</Text>
+          </View>
+        ) : (
+          <Text style={styles.rowAge}>{age}</Text>
+        )}
+      </PressHighlight>
+      <PressHighlight
+        onPress={handlePinPress}
+        style={styles.pinButton}
+        accessibilityRole="button"
+        accessibilityLabel={isPinned ? "Unpin conversation" : "Pin conversation"}
+        testID={`sidebar-pin-session-${agent.id}`}
+      >
+        {isPinned ? <ThemedPinActive size={12} /> : <ThemedPinMuted size={12} />}
+      </PressHighlight>
+    </View>
   );
 });
 
@@ -193,18 +302,37 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.accent,
   },
   list: {
-    gap: 1,
+    gap: 2,
   },
-  row: {
+  rowOuter: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: theme.borderRadius.md,
+    borderLeftWidth: 2.5,
+    borderLeftColor: "transparent",
+  },
+  rowOuterActive: {
+    backgroundColor: theme.colors.surfaceSidebarSelected,
+    borderLeftColor: theme.colors.accent,
+  },
+  rowMainPress: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: theme.spacing[2],
-    paddingHorizontal: theme.spacing[2],
+    paddingLeft: theme.spacing[2],
+    paddingRight: theme.spacing[1],
     paddingVertical: 6,
     borderRadius: theme.borderRadius.md,
   },
-  rowActive: {
-    backgroundColor: theme.colors.surfaceSidebarSelected,
+  pinButton: {
+    width: 24,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.borderRadius.sm,
+    marginRight: 2,
   },
   dot: {
     width: 7,
@@ -235,12 +363,16 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foreground,
   },
   rowTitleActive: {
-    fontWeight: theme.fontWeight.semibold,
+    fontWeight: theme.fontWeight.bold,
+    color: theme.colors.foreground,
   },
   rowRepo: {
     fontSize: 10.5,
     fontFamily: theme.fontFamily.mono,
     color: theme.colors.foregroundExtraMuted,
+  },
+  rowRepoActive: {
+    color: theme.colors.accent,
   },
   rowAge: {
     fontSize: 10.5,

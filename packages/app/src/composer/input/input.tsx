@@ -693,6 +693,9 @@ interface ComposerTextSurfaceProps {
   scrollEnabled: boolean;
   autoFocus: boolean;
   onKeyPress: ((event: WebTextInputKeyPressEvent) => void) | undefined;
+  submitBehavior?: EditingTextInputProps["submitBehavior"];
+  returnKeyType?: EditingTextInputProps["returnKeyType"];
+  onSubmitEditing?: EditingTextInputProps["onSubmitEditing"];
   onSelectionChange: (event: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => void;
   onPasteImages: ((files: readonly NativePastedFile[]) => void) | undefined;
   onPasteError: (message: string) => void;
@@ -785,6 +788,9 @@ function ComposerTextSurface(props: ComposerTextSurfaceProps): React.ReactElemen
         onBlur={props.onBlur}
         style={textInputStyle}
         multiline
+        submitBehavior={props.submitBehavior}
+        returnKeyType={props.returnKeyType}
+        onSubmitEditing={props.onSubmitEditing}
         scrollEnabled={props.scrollEnabled}
         editable={props.editable}
         onKeyPress={props.onKeyPress}
@@ -1888,6 +1894,19 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
 
     const shouldHandleWebKeyPress = isWeb;
     const shouldSubmitOnEnter = isWeb && !isCompact;
+    const shouldSubmitOnAndroidEnter = Platform.OS === "android" && sendShortcut === "enter";
+
+    const handleAndroidSubmitEditing = useCallback(() => {
+      if (!shouldSubmitOnAndroidEnter) return;
+      if (isSubmitDisabled || isSubmitLoading || disabled) return;
+      handleDefaultSendAction();
+    }, [
+      disabled,
+      handleDefaultSendAction,
+      isSubmitDisabled,
+      isSubmitLoading,
+      shouldSubmitOnAndroidEnter,
+    ]);
 
     const handleDesktopKeyPress = useCallback(
       (event: WebTextInputKeyPressEvent) => {
@@ -2190,6 +2209,9 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
             scrollEnabled={isComposerScrollEnabled}
             autoFocus={false}
             onKeyPress={shouldHandleWebKeyPress ? handleDesktopKeyPress : undefined}
+            submitBehavior={shouldSubmitOnAndroidEnter ? "submit" : undefined}
+            returnKeyType={shouldSubmitOnAndroidEnter ? "send" : undefined}
+            onSubmitEditing={shouldSubmitOnAndroidEnter ? handleAndroidSubmitEditing : undefined}
             onSelectionChange={handleSelectionChange}
             onPasteImages={onPasteImages}
             onPasteError={handlePasteError}
@@ -2222,6 +2244,8 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         isComposerScrollEnabled,
         shouldHandleWebKeyPress,
         handleDesktopKeyPress,
+        shouldSubmitOnAndroidEnter,
+        handleAndroidSubmitEditing,
         handleSelectionChange,
         onPasteImages,
         handlePasteError,
