@@ -4,13 +4,19 @@
     <meta charset="utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="robots" content="noindex,nofollow" />
-    <meta name="theme-color" content="#181B1A" />
+    <meta name="theme-color" content="#15100B" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="Paseo" />
+    <meta name="apple-mobile-web-app-title" content="Paseo Atelier" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
     />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -32,12 +38,10 @@
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
-      /* Prevent white flash before React mounts */
-      @media (prefers-color-scheme: dark) {
-        html,
-        body {
-          background-color: #181b1a;
-        }
+      /* Prevent white flash before React mounts (Atelier dark default) */
+      html,
+      body {
+        background-color: #15100b;
       }
       /* These styles make the root element full-height */
       #root {
@@ -89,7 +93,7 @@
         outline: none;
       }
       *:focus-visible {
-        outline: 2px solid var(--colors-ring, #20744a);
+        outline: 2px solid var(--colors-ring, #f0a050);
         outline-offset: 2px;
       }
     </style>

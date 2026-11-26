@@ -1332,6 +1332,7 @@ export const ru: TranslationResources = {
       sessions: "История",
       search: "Поиск",
       schedules: "Расписания",
+      team: "Team & GPU",
     },
     worktreeSetup: {
       title: "Настроить скрипты worktree",
@@ -2805,6 +2806,9 @@ export const ru: TranslationResources = {
         title: "Тема",
         accessibilityLabel: "Тема: {{value}}",
         options: {
+          atelier: "Atelier",
+          atelierAmoled: "Atelier AMOLED",
+          atelierLight: "Atelier Light",
           light: "Светлая",
           dark: "Тёмная",
           zinc: "Цинк",

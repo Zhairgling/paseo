@@ -1342,6 +1342,7 @@ export const fr: TranslationResources = {
       sessions: "Historique",
       search: "Recherche",
       schedules: "Planifications",
+      team: "Équipe & GPU",
     },
     worktreeSetup: {
       title: "Configurer les scripts de worktree",
@@ -2818,6 +2819,9 @@ export const fr: TranslationResources = {
         title: "Thème",
         accessibilityLabel: "Thème : {{value}}",
         options: {
+          atelier: "Atelier (Sombre)",
+          atelierAmoled: "Atelier AMOLED",
+          atelierLight: "Atelier Clair",
           light: "Clair",
           dark: "Sombre",
           zinc: "Zinc",

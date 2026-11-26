@@ -24,6 +24,7 @@ import { toNodeHandler } from "@modelcontextprotocol/node";
 import type { Logger } from "pino";
 import { z } from "zod";
 import { createBranchChangeRouteHandler } from "./script-route-branch-handler.js";
+import { registerHomelabRoutes } from "./homelab-routes.js";
 
 import {
   createDaemonListeners,
@@ -909,6 +910,9 @@ export async function createPaseoDaemon(
   app.get("/api/files/download", (req, res) => {
     void handleFileDownload(req, res);
   });
+
+  // Homelab Multi-GPU, Iris mode & Unified Team API
+  registerHomelabRoutes(app, { paseoHome: config.paseoHome, logger });
 
   const httpServer = createHTTPServer(app);
   const listeners = createDaemonListeners({

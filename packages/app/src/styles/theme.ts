@@ -531,6 +531,101 @@ const claudeDarkColors = buildDarkSemanticColors({
   terminalBrightBlack: "#4a4745",
 });
 
+// Atelier — palette chaleureuse sombre par défaut (bg #15100B, surface #1D1610, ambre #F0A050)
+const atelierDarkColors = {
+  ...buildDarkSemanticColors({
+    surface0: "#15100B",
+    surface1: "#1D1610",
+    surface2: "#2A2018",
+    surface3: "#3B2E22",
+    surface4: "#4F3F30",
+    surfaceSidebar: "#110D09",
+    foreground: "#EFE8DC",
+    foregroundMuted: "#B8AA97",
+    foregroundExtraMuted: "#867866",
+    border: "#2E241B",
+    borderAccent: "#3E3024",
+    accent: "#F0A050",
+    accentBright: "#F7C48A",
+    accentForeground: "#15100B",
+    destructive: "#E0654A",
+    terminalBlack: "#2A2018",
+    terminalBrightBlack: "#5A4A3C",
+  }),
+  statusSuccess: "#5BE0A4",
+  statusWarning: "#F3C983",
+  statusDanger: "#E0654A",
+  statusSuccessTint: "#5BE0A429",
+  statusWarningTint: "#F3C98329",
+  statusDangerTint: "#E0654A29",
+  diffAddition: "#5BE0A4",
+  diffDeletion: "#E0654A",
+};
+
+// Atelier AMOLED — fond noir pur #000000 + surfaces & accents Atelier
+const atelierAmoledColors = {
+  ...buildDarkSemanticColors({
+    surface0: "#000000",
+    surface1: "#15100B",
+    surface2: "#241B13",
+    surface3: "#362A1F",
+    surface4: "#4A3A2B",
+    surfaceSidebar: "#000000",
+    foreground: "#EFE8DC",
+    foregroundMuted: "#B8AA97",
+    foregroundExtraMuted: "#867866",
+    border: "#261D15",
+    borderAccent: "#382B20",
+    accent: "#F0A050",
+    accentBright: "#F7C48A",
+    accentForeground: "#15100B",
+    destructive: "#E0654A",
+    terminalBlack: "#5A4A3C",
+    terminalBrightBlack: "#8C7866",
+  }),
+  statusSuccess: "#5BE0A4",
+  statusWarning: "#F3C983",
+  statusDanger: "#E0654A",
+  statusSuccessTint: "#5BE0A429",
+  statusWarningTint: "#F3C98329",
+  statusDangerTint: "#E0654A29",
+  diffAddition: "#5BE0A4",
+  diffDeletion: "#E0654A",
+};
+
+// Atelier Clair — parchemin #F6F1E7, surface #FFFBF4, ambre foncé #A3570F
+const atelierLightColors = {
+  ...buildLightSemanticColors({
+    surface0: "#F6F1E7",
+    surface1: "#FFFBF4",
+    surface2: "#E7DEC9",
+    surface3: "#D8CCBA",
+    surface4: "#C7B8A2",
+    surfaceSidebar: "#EFE8DC",
+    foreground: "#1F1812",
+    foregroundMuted: "#6B5B4A",
+    foregroundExtraMuted: "#8F7D6A",
+    border: "#DED4C3",
+    borderAccent: "#CFC2AC",
+    accent: "#A3570F",
+    accentBright: "#C27A2E",
+    accentForeground: "#FFFBF4",
+    primary: "#1F1812",
+    primaryForeground: "#FFFBF4",
+    destructive: "#B5381F",
+    terminalBlack: "#1F1812",
+    terminalBrightBlack: "#5C4D3D",
+  }),
+  statusSuccess: "#1C7A55",
+  statusWarning: "#86610C",
+  statusDanger: "#B5381F",
+  statusSuccessTint: "#1C7A551f",
+  statusWarningTint: "#86610C1f",
+  statusDangerTint: "#B5381F1f",
+  diffAddition: "#1C7A55",
+  diffDeletion: "#B5381F",
+};
+
 // Ghostty — blue-tinted dark based on Ghostty default background
 const ghosttyDarkColors = buildDarkSemanticColors({
   surface0: "#282c34",
@@ -630,13 +725,13 @@ export const OPACITY = {
 export const DEFAULT_UI_FONT_STACK: string = Platform.select({
   ios: "system-ui",
   default: "normal",
-  web: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+  web: "'Archivo', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
 });
 
 export const DEFAULT_MONO_FONT_STACK: string = Platform.select({
   ios: "ui-monospace",
   default: "monospace",
-  web: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+  web: "'JetBrains Mono', SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
 });
 
 // Chat and markdown content column; the appearance updater patches the user's width in.
@@ -780,12 +875,36 @@ export function buildLightTheme(semanticColors: ReturnType<typeof buildLightSema
   } as const;
 }
 
+export const atelierDarkTheme = buildDarkTheme(atelierDarkColors);
+export const atelierAmoledTheme = buildDarkTheme(atelierAmoledColors);
+export const atelierLightTheme = buildLightTheme(atelierLightColors);
 export const lightTheme = buildLightTheme(lightSemanticColors);
 
-// Keep compatibility with existing code
-export const theme = darkTheme;
+// Keep compatibility with existing code (Atelier sombre par défaut)
+export const theme = atelierDarkTheme;
 
 export const THEME_OPTIONS = [
+  {
+    name: "atelier",
+    group: "primary",
+    unistylesName: "atelier",
+    theme: atelierDarkTheme,
+    swatch: "#F0A050",
+  },
+  {
+    name: "atelierAmoled",
+    group: "variant",
+    unistylesName: "atelierAmoled",
+    theme: atelierAmoledTheme,
+    swatch: "#15100B",
+  },
+  {
+    name: "atelierLight",
+    group: "variant",
+    unistylesName: "atelierLight",
+    theme: atelierLightTheme,
+    swatch: "#F6F1E7",
+  },
   {
     name: "light",
     group: "primary",

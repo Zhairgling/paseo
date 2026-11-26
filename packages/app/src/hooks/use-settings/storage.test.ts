@@ -159,12 +159,12 @@ describe("loadAppSettingsFromStorage", () => {
     expect((await loadAppSettingsFromStorage(deps)).sendBehavior).toBe("interrupt");
   });
 
-  it("defaults theme to auto when storage is empty", async () => {
+  it("defaults theme to atelier when storage is empty", async () => {
     const deps = makeDeps();
 
     const result = await loadAppSettingsFromStorage(deps);
 
-    expect(result.theme).toBe("auto");
+    expect(result.theme).toBe("atelier");
   });
 
   it.each(THEME_OPTIONS)("loads the persisted $name theme", async ({ name }) => {

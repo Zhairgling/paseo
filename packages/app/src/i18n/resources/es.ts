@@ -1349,6 +1349,7 @@ export const es: TranslationResources = {
       sessions: "Historial",
       search: "Buscar",
       schedules: "Horarios",
+      team: "Team & GPU",
     },
     worktreeSetup: {
       title: "Configurar secuencias de comandos del árbol de trabajo",
@@ -2818,6 +2819,9 @@ export const es: TranslationResources = {
         title: "Tema",
         accessibilityLabel: "Tema:{{value}}",
         options: {
+          atelier: "Atelier",
+          atelierAmoled: "Atelier AMOLED",
+          atelierLight: "Atelier Light",
           light: "Luz",
           dark: "Oscuro",
           zinc: "Zinc",

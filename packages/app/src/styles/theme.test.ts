@@ -27,6 +27,9 @@ describe("Typography scale", () => {
 describe("Theme catalog", () => {
   it("owns the picker and shortcut order", () => {
     expect(THEME_OPTIONS.map((option) => option.name)).toEqual([
+      "atelier",
+      "atelierAmoled",
+      "atelierLight",
       "light",
       "dark",
       "auto",
@@ -37,7 +40,7 @@ describe("Theme catalog", () => {
       "pureBlack",
     ]);
     expect(getNextThemePreference("dark")).toBe("auto");
-    expect(getNextThemePreference("pureBlack")).toBe("light");
+    expect(getNextThemePreference("pureBlack")).toBe("atelier");
   });
 });
 

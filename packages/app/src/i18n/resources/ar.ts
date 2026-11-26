@@ -1312,6 +1312,7 @@ export const ar: TranslationResources = {
       sessions: "السجل",
       search: "بحث",
       schedules: "الجداول",
+      team: "Team & GPU",
     },
     worktreeSetup: {
       title: "إعداد البرامج النصية لشجرة العمل",
@@ -2789,6 +2790,9 @@ export const ar: TranslationResources = {
         title: "سمة",
         accessibilityLabel: "الموضوع:{{value}}",
         options: {
+          atelier: "Atelier",
+          atelierAmoled: "Atelier AMOLED",
+          atelierLight: "Atelier Light",
           light: "ضوء",
           dark: "مظلم",
           zinc: "الزنك",

@@ -1327,6 +1327,7 @@ export const ja: TranslationResources = {
       sessions: "履歴",
       search: "検索",
       schedules: "スケジュール",
+      team: "Team & GPU",
     },
     worktreeSetup: {
       title: "ワークツリースクリプトを設定",
@@ -2779,6 +2780,9 @@ export const ja: TranslationResources = {
         title: "テーマ",
         accessibilityLabel: "テーマ: {{value}}",
         options: {
+          atelier: "Atelier",
+          atelierAmoled: "Atelier AMOLED",
+          atelierLight: "Atelier Light",
           light: "ライト",
           dark: "ダーク",
           zinc: "Zinc",

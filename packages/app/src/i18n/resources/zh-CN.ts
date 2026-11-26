@@ -1304,6 +1304,7 @@ export const zhCN: TranslationResources = {
       sessions: "历史",
       search: "搜索",
       schedules: "计划",
+      team: "Team & GPU",
     },
     worktreeSetup: {
       title: "设置 worktree scripts",
@@ -2725,6 +2726,9 @@ export const zhCN: TranslationResources = {
         title: "主题",
         accessibilityLabel: "主题：{{value}}",
         options: {
+          atelier: "Atelier",
+          atelierAmoled: "Atelier AMOLED",
+          atelierLight: "Atelier Light",
           light: "Light",
           dark: "Dark",
           zinc: "Zinc",

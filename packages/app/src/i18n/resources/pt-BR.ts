@@ -1339,6 +1339,7 @@ export const ptBR: TranslationResources = {
       sessions: "Histórico",
       search: "Buscar",
       schedules: "Agendamentos",
+      team: "Team & GPU",
     },
     worktreeSetup: {
       title: "Configurar scripts de worktree",
@@ -2800,6 +2801,9 @@ export const ptBR: TranslationResources = {
         title: "Tema",
         accessibilityLabel: "Tema: {{value}}",
         options: {
+          atelier: "Atelier",
+          atelierAmoled: "Atelier AMOLED",
+          atelierLight: "Atelier Light",
           light: "Claro",
           dark: "Escuro",
           zinc: "Zinc",

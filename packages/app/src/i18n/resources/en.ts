@@ -1323,6 +1323,7 @@ export const en = {
       sessions: "History",
       search: "Search",
       schedules: "Schedules",
+      team: "Team & GPU",
     },
     worktreeSetup: {
       title: "Set up worktree scripts",
@@ -2887,6 +2888,9 @@ export const en = {
         title: "Theme",
         accessibilityLabel: "Theme: {{value}}",
         options: {
+          atelier: "Atelier (Dark)",
+          atelierAmoled: "Atelier AMOLED",
+          atelierLight: "Atelier Light",
           light: "Light",
           dark: "Dark",
           zinc: "Zinc",

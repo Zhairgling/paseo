@@ -1319,6 +1319,7 @@ export const ko: TranslationResources = {
       sessions: "기록",
       search: "검색",
       schedules: "일정",
+      team: "Team & GPU",
     },
     worktreeSetup: {
       title: "워크트리 스크립트 설정",
@@ -2768,6 +2769,9 @@ export const ko: TranslationResources = {
         title: "테마",
         accessibilityLabel: "테마: {{value}}",
         options: {
+          atelier: "Atelier",
+          atelierAmoled: "Atelier AMOLED",
+          atelierLight: "Atelier Light",
           light: "라이트",
           dark: "다크",
           zinc: "Zinc",
