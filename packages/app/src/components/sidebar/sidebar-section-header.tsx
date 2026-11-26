@@ -67,7 +67,7 @@ function CollapsibleTitle({
       {({ hovered }) => (
         <>
           <Text style={styles.title}>{title}</Text>
-          {hovered || isNative || isCompact ? (
+          {collapsed || hovered || isNative || isCompact ? (
             <DensityIcon
               icon={collapsed ? ChevronRight : ChevronDown}
               size="xs"

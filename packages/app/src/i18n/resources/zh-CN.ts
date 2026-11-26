@@ -1273,6 +1273,10 @@ export const zhCN: TranslationResources = {
     pinned: {
       title: "已置顶",
     },
+    recentSessions: {
+      title: "Recent sessions",
+      viewAll: "All",
+    },
     host: {
       noHost: "没有 Host",
       switchTitle: "切换 Host",

@@ -6,7 +6,9 @@ import {
   setProjectCollapsed,
   togglePinnedCollapsed,
   toggleProjectCollapsed,
+  toggleRecentSessionsCollapsed,
   toggleWorkspaceGroupCollapsed,
+  toggleWorkspacesCollapsed,
 } from "@/stores/sidebar-collapsed-sections-store/state";
 
 function emptyState(): CollapsedProjectsState {
@@ -14,6 +16,8 @@ function emptyState(): CollapsedProjectsState {
     collapsedProjectKeys: new Set(),
     collapsedWorkspaceGroupKeys: new Set(),
     collapsedPinned: false,
+    collapsedRecentSessions: false,
+    collapsedWorkspaces: false,
   };
 }
 
@@ -35,21 +39,32 @@ describe("sidebar collapsed projects transitions", () => {
       collapsedProjectKeys: new Set(["project-a", "project-b"]),
       collapsedWorkspaceGroupKeys: new Set(["running"]),
       collapsedPinned: true,
+      collapsedRecentSessions: false,
+      collapsedWorkspaces: true,
     };
 
     expect(serializeCollapsedProjects(state)).toEqual({
       collapsedProjectKeys: ["project-a", "project-b"],
       collapsedWorkspaceGroupKeys: ["running"],
       collapsedPinned: true,
+      collapsedRecentSessions: false,
+      collapsedWorkspaces: true,
     });
   });
 
-  it("toggles and restores the pinned section collapse flag", () => {
+  it("toggles and restores the pinned, recent sessions and workspaces collapse flags", () => {
     const toggled = togglePinnedCollapsed(emptyState());
     expect(toggled.collapsedPinned).toBe(true);
+    expect(toggleRecentSessionsCollapsed(emptyState()).collapsedRecentSessions).toBe(true);
+    expect(toggleWorkspacesCollapsed(emptyState()).collapsedWorkspaces).toBe(true);
 
-    const restored = mergePersistedCollapsedProjects({ collapsedPinned: true }, emptyState());
+    const restored = mergePersistedCollapsedProjects(
+      { collapsedPinned: true, collapsedRecentSessions: true, collapsedWorkspaces: true },
+      emptyState(),
+    );
     expect(restored.collapsedPinned).toBe(true);
+    expect(restored.collapsedRecentSessions).toBe(true);
+    expect(restored.collapsedWorkspaces).toBe(true);
   });
 
   it("rejects the complete value when a persisted project key is invalid", () => {

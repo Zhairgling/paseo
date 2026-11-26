@@ -91,6 +91,7 @@ import type { PinnedSidebarGroups } from "@/hooks/use-sidebar-pins";
 import { RetainedPanelActivity } from "@/components/retained-panel";
 import type { SidebarWorkspaceGroup } from "@/components/sidebar/sidebar-labels";
 import type { SidebarProjectIconTarget } from "@/utils/sidebar-project-row-model";
+import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
 import { type SidebarGroupMode, useSidebarViewStore } from "@/stores/sidebar-view-store";
 import { useHosts } from "@/runtime/host-runtime";
 import { PluginSidebarItem } from "@/plugins/sidebar-items";
@@ -954,8 +955,17 @@ function DesktopSidebar({
 }
 
 function WorkspacesSectionHeader() {
+  const collapsed = useSidebarCollapsedSectionsStore((state) => state.collapsedWorkspaces);
+  const toggleCollapsed = useSidebarCollapsedSectionsStore(
+    (state) => state.toggleWorkspacesCollapsed,
+  );
   return (
-    <SidebarSectionHeader title="Workspaces">
+    <SidebarSectionHeader
+      title="Workspaces"
+      collapsed={collapsed}
+      onToggle={toggleCollapsed}
+      testID="sidebar-workspaces-section-header"
+    >
       <Tooltip delayDuration={300}>
         <TooltipTrigger asChild>
           <View>

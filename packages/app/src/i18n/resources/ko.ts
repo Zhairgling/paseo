@@ -1288,6 +1288,10 @@ export const ko: TranslationResources = {
     pinned: {
       title: "고정됨",
     },
+    recentSessions: {
+      title: "Recent sessions",
+      viewAll: "All",
+    },
     host: {
       noHost: "호스트 없음",
       switchTitle: "호스트 전환",

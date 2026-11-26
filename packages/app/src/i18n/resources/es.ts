@@ -1318,6 +1318,10 @@ export const es: TranslationResources = {
     pinned: {
       title: "Anclados",
     },
+    recentSessions: {
+      title: "Recent sessions",
+      viewAll: "All",
+    },
     host: {
       noHost: "Sin anfitrión",
       switchTitle: "Cambiar de anfitrión",

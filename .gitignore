@@ -98,3 +98,5 @@ app.json
 
 # Project-local Serena configuration and memories.
 .serena/
+
+packages/app/e2e/golden/diffs/

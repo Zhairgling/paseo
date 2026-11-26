@@ -1308,6 +1308,10 @@ export const ptBR: TranslationResources = {
     pinned: {
       title: "Fixados",
     },
+    recentSessions: {
+      title: "Recent sessions",
+      viewAll: "All",
+    },
     host: {
       noHost: "Nenhum host",
       switchTitle: "Trocar host",

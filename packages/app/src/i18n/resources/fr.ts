@@ -1311,6 +1311,10 @@ export const fr: TranslationResources = {
     pinned: {
       title: "Épinglés",
     },
+    recentSessions: {
+      title: "Dernières sessions",
+      viewAll: "Tout",
+    },
     host: {
       noHost: "Aucun hôte",
       switchTitle: "Changer d’hôte",

@@ -1296,6 +1296,10 @@ export const ja: TranslationResources = {
     pinned: {
       title: "固定済み",
     },
+    recentSessions: {
+      title: "Recent sessions",
+      viewAll: "All",
+    },
     host: {
       noHost: "ホストなし",
       switchTitle: "ホストを切り替え",

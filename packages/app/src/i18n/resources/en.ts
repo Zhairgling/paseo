@@ -1292,6 +1292,10 @@ export const en = {
     pinned: {
       title: "Pinned",
     },
+    recentSessions: {
+      title: "Recent sessions",
+      viewAll: "All",
+    },
     host: {
       noHost: "No host",
       switchTitle: "Switch host",

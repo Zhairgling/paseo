@@ -1281,6 +1281,10 @@ export const ar: TranslationResources = {
     pinned: {
       title: "المثبتة",
     },
+    recentSessions: {
+      title: "Recent sessions",
+      viewAll: "All",
+    },
     host: {
       noHost: "لا مضيف",
       switchTitle: "تبديل المضيف",

@@ -70,6 +70,7 @@ import {
   SidebarWorkspaceMenu,
 } from "@/components/sidebar/sidebar-workspace-menu";
 import { SidebarSectionHeader } from "@/components/sidebar/sidebar-section-header";
+import { SidebarRecentSessionsSection } from "@/components/sidebar/sidebar-recent-sessions";
 import { SidebarGroupToggleRow } from "@/components/sidebar/sidebar-group-toggle-row";
 import { selectSidebarGroupVisibility } from "@/components/sidebar/sidebar-group-visibility";
 import { useLimitedSidebarGroup } from "@/components/sidebar/use-limited-sidebar-group";
@@ -156,6 +157,9 @@ export function SidebarStatusWorkspaceList({
     (state) => state.collapsedWorkspaceGroupKeys,
   );
   const pinnedCollapsed = useSidebarCollapsedSectionsStore((state) => state.collapsedPinned);
+  const workspacesCollapsed = useSidebarCollapsedSectionsStore(
+    (state) => state.collapsedWorkspaces,
+  );
   const togglePinnedCollapsed = useSidebarCollapsedSectionsStore(
     (state) => state.togglePinnedCollapsed,
   );
@@ -287,6 +291,24 @@ export function SidebarStatusWorkspaceList({
       }),
     [renderPinnedWorkspaceRow],
   );
+  const statusWorkspacesBody = sidebarFilterEmpty ? (
+    <SidebarFilterEmptyState />
+  ) : (
+    <StatusGroupList
+      groups={groups}
+      collapsedWorkspaceGroupKeys={collapsedWorkspaceGroupKeys}
+      expandedGroupKeys={expandedGroupKeys}
+      onToggleGroupWorkspacesExpanded={toggleGroupWorkspacesExpanded}
+      projectIconByProjectViewKey={projectIconByProjectViewKey}
+      shortcutIndex={statusShortcutIndex}
+      showShortcutBadges={showShortcutBadges}
+      onWorkspacePress={onWorkspacePress}
+      hostBadgeByServerId={hostBadgeByServerId}
+      supportsPinningByServerId={supportsPinningByServerId}
+      onToggleWorkspacePin={onToggleWorkspacePin}
+    />
+  );
+
   const content = (
     <>
       {pinnedWorkspaces.length > 0 ? (
@@ -323,24 +345,9 @@ export function SidebarStatusWorkspaceList({
           )}
         </View>
       ) : null}
+      <SidebarRecentSessionsSection onSessionPress={onWorkspacePress} />
       {listHeaderComponent}
-      {sidebarFilterEmpty ? (
-        <SidebarFilterEmptyState />
-      ) : (
-        <StatusGroupList
-          groups={groups}
-          collapsedWorkspaceGroupKeys={collapsedWorkspaceGroupKeys}
-          expandedGroupKeys={expandedGroupKeys}
-          onToggleGroupWorkspacesExpanded={toggleGroupWorkspacesExpanded}
-          projectIconByProjectViewKey={projectIconByProjectViewKey}
-          shortcutIndex={statusShortcutIndex}
-          showShortcutBadges={showShortcutBadges}
-          onWorkspacePress={onWorkspacePress}
-          hostBadgeByServerId={hostBadgeByServerId}
-          supportsPinningByServerId={supportsPinningByServerId}
-          onToggleWorkspacePin={onToggleWorkspacePin}
-        />
-      )}
+      {workspacesCollapsed ? null : statusWorkspacesBody}
       <SidebarToastClearance />
     </>
   );

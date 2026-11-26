@@ -100,6 +100,7 @@ import {
 } from "@/components/sidebar/sidebar-workspace-menu";
 import { useLongPressDragInteraction } from "@/components/sidebar/use-long-press-drag-interaction";
 import { SidebarSectionHeader } from "@/components/sidebar/sidebar-section-header";
+import { SidebarRecentSessionsSection } from "@/components/sidebar/sidebar-recent-sessions";
 import { SidebarGroupToggleRow } from "@/components/sidebar/sidebar-group-toggle-row";
 import {
   createWorkspaceVisibilityPolicy,
@@ -2210,6 +2211,9 @@ function ProjectModeList({
   );
   const showShortcutBadges = useShowShortcutBadges();
   const pinnedCollapsed = useSidebarCollapsedSectionsStore((state) => state.collapsedPinned);
+  const workspacesCollapsed = useSidebarCollapsedSectionsStore(
+    (state) => state.collapsedWorkspaces,
+  );
   const togglePinnedCollapsed = useSidebarCollapsedSectionsStore(
     (state) => state.togglePinnedCollapsed,
   );
@@ -2596,6 +2600,8 @@ function ProjectModeList({
       />
     );
 
+  const workspacesSectionBody = sidebarFilterEmpty ? <SidebarFilterEmptyState /> : projectBody;
+
   const content = (
     <>
       {pinnedChats.length > 0 ? (
@@ -2634,6 +2640,7 @@ function ProjectModeList({
           )}
         </View>
       ) : null}
+      <SidebarRecentSessionsSection onSessionPress={onWorkspacePress} />
       {/* The header carries the display menu, which is the only way back out of a filter, so it
         stays for as long as a filter is what emptied the list. It is absent only when the
         sidebar is genuinely empty, where a section heading would sit over nothing.
@@ -2646,7 +2653,7 @@ function ProjectModeList({
       sidebarFilterEmpty
         ? listHeaderComponent
         : null}
-      {sidebarFilterEmpty ? <SidebarFilterEmptyState /> : projectBody}
+      {workspacesCollapsed ? null : workspacesSectionBody}
       {listFooterComponent}
       <SidebarToastClearance />
     </>

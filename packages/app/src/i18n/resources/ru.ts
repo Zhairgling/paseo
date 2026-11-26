@@ -1301,6 +1301,10 @@ export const ru: TranslationResources = {
     pinned: {
       title: "Закреплённые",
     },
+    recentSessions: {
+      title: "Recent sessions",
+      viewAll: "All",
+    },
     host: {
       noHost: "Нет хоста",
       switchTitle: "Сменить хост",
