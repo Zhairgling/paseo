@@ -78,9 +78,11 @@ import { toggleDesktopSidebarsWithCheckoutIntent } from "@/utils/desktop-sidebar
 import {
   isExplorerSidebarOpen,
   openExplorerSidebarView,
+  showExplorerSidebar,
   toggleExplorerSidebar,
   useIsExplorerSidebarOpen,
 } from "@/workspace-tabs/explorer-sidebar";
+import { useOpenedFilesStore } from "@/stores/opened-files-store";
 import {
   openPreferredWorkspacePreview,
   openPreferredWorkspaceTarget,
@@ -1931,6 +1933,31 @@ function WorkspaceScreenContent({
     workspaceSetupStatus,
   ]);
 
+  const openFileInRightExplorerPanel = useCallback(
+    (location: WorkspaceFileLocation, parentTabId?: string | null) => {
+      const normalizedLocation = normalizeWorkspaceFileLocation(location);
+      if (!normalizedLocation || !persistenceKey) {
+        return;
+      }
+      useOpenedFilesStore.getState().recordOpenedFile({
+        serverId: normalizedServerId,
+        workspaceId: normalizedWorkspaceId,
+        location: normalizedLocation,
+      });
+      const paneId = showExplorerSidebar({ isCompact: isMobile, workspaceKey: persistenceKey });
+      const target = createWorkspaceFileTabTarget(normalizedLocation);
+      const tabId = useWorkspaceLayoutStore.getState().openTab({
+        workspaceKey: persistenceKey,
+        target,
+        intent: "reveal",
+        placement: paneId ? { mode: "pane", paneId } : undefined,
+        parentTabId: parentTabId ?? undefined,
+      });
+      revealWorkspaceTab(persistenceKey, tabId);
+    },
+    [isMobile, normalizedServerId, normalizedWorkspaceId, persistenceKey],
+  );
+
   const handleOpenFileFromChat = useCallback(
     (location: WorkspaceFileLocation, parentTabId?: string | null) => {
       const normalizedLocation = normalizeWorkspaceFileLocation(location);
@@ -1940,6 +1967,15 @@ function WorkspaceScreenContent({
       if (!persistenceKey) {
         return;
       }
+      if (!canRenderDesktopPaneSplits) {
+        openFileInRightExplorerPanel(normalizedLocation, parentTabId);
+        return;
+      }
+      useOpenedFilesStore.getState().recordOpenedFile({
+        serverId: normalizedServerId,
+        workspaceId: normalizedWorkspaceId,
+        location: normalizedLocation,
+      });
       const target = createWorkspaceFileTabTarget(normalizedLocation);
       const tabId = parentTabId
         ? revealWorkspaceChildTab(persistenceKey, target, parentTabId, FOCUSED_PANE_PLACEMENT)
@@ -1948,7 +1984,16 @@ function WorkspaceScreenContent({
         navigateToTabId(tabId);
       }
     },
-    [navigateToTabId, openWorkspaceTabFocused, revealWorkspaceChildTab, persistenceKey],
+    [
+      canRenderDesktopPaneSplits,
+      navigateToTabId,
+      normalizedServerId,
+      normalizedWorkspaceId,
+      openFileInRightExplorerPanel,
+      openWorkspaceTabFocused,
+      persistenceKey,
+      revealWorkspaceChildTab,
+    ],
   );
 
   const handleOpenPreferredAssistantFile = useCallback(
@@ -1960,6 +2005,15 @@ function WorkspaceScreenContent({
       if (!persistenceKey) {
         return;
       }
+      if (!canRenderDesktopPaneSplits) {
+        openFileInRightExplorerPanel(location, input.parentTabId);
+        return;
+      }
+      useOpenedFilesStore.getState().recordOpenedFile({
+        serverId: normalizedServerId,
+        workspaceId: normalizedWorkspaceId,
+        location,
+      });
 
       openPreferredWorkspaceTarget({
         workspaceKey: persistenceKey,
@@ -1969,7 +2023,14 @@ function WorkspaceScreenContent({
         parentTabId: input.parentTabId,
       });
     },
-    [openInSidePane, persistenceKey],
+    [
+      canRenderDesktopPaneSplits,
+      normalizedServerId,
+      normalizedWorkspaceId,
+      openFileInRightExplorerPanel,
+      openInSidePane,
+      persistenceKey,
+    ],
   );
 
   const handleOpenWorkspaceFileFromPane = useStableEvent(function handleOpenWorkspaceFileFromPane({
@@ -1989,6 +2050,15 @@ function WorkspaceScreenContent({
     if (request.disposition === "side") {
       const location = normalizeWorkspaceFileLocation(request.location);
       if (!location || !persistenceKey) return;
+      if (!canRenderDesktopPaneSplits) {
+        openFileInRightExplorerPanel(location, parentTabId);
+        return;
+      }
+      useOpenedFilesStore.getState().recordOpenedFile({
+        serverId: normalizedServerId,
+        workspaceId: normalizedWorkspaceId,
+        location,
+      });
       openWorkspaceTargetBeside({
         workspaceKey: persistenceKey,
         target: createWorkspaceFileTabTarget(location),
@@ -3212,6 +3282,22 @@ function WorkspaceScreenContent({
         },
         onOpenPreferredTarget: (target, source) => {
           if (!persistenceKey) return;
+          if (target.kind === "file") {
+            const location: WorkspaceFileLocation = {
+              path: target.path,
+              lineStart: target.lineStart,
+              lineEnd: target.lineEnd,
+            };
+            if (!canRenderDesktopPaneSplits) {
+              openFileInRightExplorerPanel(location, input.tab.tabId);
+              return;
+            }
+            useOpenedFilesStore.getState().recordOpenedFile({
+              serverId: normalizedServerId,
+              workspaceId: normalizedWorkspaceId,
+              location,
+            });
+          }
           openPreferredWorkspacePreview({
             workspaceKey: persistenceKey,
             serverId: normalizedServerId,
@@ -3272,6 +3358,7 @@ function WorkspaceScreenContent({
       canRenderDesktopPaneSplits,
       openImportSheet,
       openInSidePane,
+      openFileInRightExplorerPanel,
       revealWorkspaceChildTab,
       persistenceKey,
       replaceWorkspaceTabTarget,

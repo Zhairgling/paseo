@@ -53,12 +53,7 @@ export function stopReadAloud(): void {
   void Speech.stop();
 }
 
-export function toggleReadAloud(id: string, rawText: string): void {
-  if (activeSpeakingId === id) {
-    stopReadAloud();
-    return;
-  }
-
+function startReadAloud(id: string, rawText: string): void {
   const cleaned = stripMarkdownForSpeech(rawText);
   if (!cleaned) {
     return;
@@ -110,6 +105,19 @@ export function toggleReadAloud(id: string, rawText: string): void {
       }
     },
   });
+}
+
+export function restartReadAloud(id: string, rawText: string): void {
+  startReadAloud(id, rawText);
+}
+
+export function toggleReadAloud(id: string, rawText: string): void {
+  if (activeSpeakingId === id) {
+    stopReadAloud();
+    return;
+  }
+
+  startReadAloud(id, rawText);
 }
 
 export function useReadAloud(id: string): {

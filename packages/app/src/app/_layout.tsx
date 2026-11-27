@@ -48,6 +48,7 @@ import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog"
 import { ChangelogHost } from "@/changelog";
 import { OnboardingHost, useIsSetupDecisionPending } from "@/onboarding";
 import { AppDiagnosticHost } from "@/components/app-diagnostic-host";
+import { QuickVoicePickerHost } from "@/components/quick-voice-picker-modal";
 import { AppearanceStyleBoundary } from "@/components/appearance-style-boundary";
 import { LeftSidebar } from "@/components/left-sidebar";
 import { WindowSidebarMenuToggle } from "@/components/headers/sidebar-menu-toggle";
@@ -584,6 +585,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
         <WorkspaceSetupDialog />
         <KeyboardShortcutsDialog />
         <AppDiagnosticHost />
+        <QuickVoicePickerHost />
         <ChangelogHost />
         <QuittingOverlay />
       </AppearanceStyleBoundary>

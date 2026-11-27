@@ -61,6 +61,8 @@ import {
   XCircle,
 } from "lucide-react-native";
 import { useReadAloud } from "@/utils/read-aloud";
+import { openQuickVoicePicker } from "@/components/quick-voice-picker-modal";
+import * as Haptics from "expo-haptics";
 import type { ComponentType, ReactNode } from "react";
 import * as React from "react";
 import {
@@ -892,6 +894,11 @@ const TurnSpeakButton = memo(function TurnSpeakButton({
     toggle(text);
   }, [getContent, toggle]);
 
+  const handleLongPress = useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    openQuickVoicePicker({ speakId, getContent });
+  }, [getContent, speakId]);
+
   const pressableStyle = useMemo(
     () => [turnCopyButtonStylesheet.container, containerStyle],
     [containerStyle],
@@ -900,6 +907,8 @@ const TurnSpeakButton = memo(function TurnSpeakButton({
   return (
     <Pressable
       onPress={handlePress}
+      onLongPress={handleLongPress}
+      delayLongPress={320}
       style={pressableStyle}
       accessibilityRole="button"
       accessibilityLabel={
