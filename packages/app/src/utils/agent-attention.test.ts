@@ -114,4 +114,16 @@ describe("agent attention acknowledgement", () => {
     controller.focus();
     expect(calls).toBe(2);
   });
+
+  it("keeps conversation unread while obscured behind an overlay drawer and clears once revealed", () => {
+    const { controller, state, calls } = setup();
+    // Initial view behind an overlay drawer, then queued message finishes unread.
+    controller.update({ ...state, focused: false, requiresAttention: false });
+    controller.update({ ...state, focused: false, requiresAttention: true });
+    expect(calls).toEqual([]);
+
+    // User closes the overlay drawer and reads the conversation.
+    controller.update({ ...state, focused: true, requiresAttention: true });
+    expect(calls).toEqual(["clear"]);
+  });
 });

@@ -13,6 +13,7 @@ import {
   View,
   Pressable,
   Text,
+  Platform,
   StyleSheet as RNStyleSheet,
   type PressableStateCallbackType,
 } from "react-native";
@@ -59,6 +60,8 @@ import {
   Image as ImageIcon,
   ClipboardPaste,
   Paperclip,
+  RotateCcw,
+  Sparkles,
   X,
 } from "lucide-react-native";
 import * as Clipboard from "expo-clipboard";
@@ -197,6 +200,9 @@ import {
   resolveWorkspaceFileDrop,
   type WorkspaceFileDragPayload,
 } from "@/attachments/workspace-file-drag";
+import { useOnDeviceLlmStore } from "@/stores/ondevice-llm-store";
+import { canRepromptText, formatRepromptDownloadBadge, REPROMPT_MODE_LABELS } from "./reprompt";
+import type { RepromptMode } from "../../modules/aju-ondevice-llm";
 
 const composerImageAttachmentPersister: Pick<
   AttachmentPersister,
@@ -2296,22 +2302,76 @@ function ComposerContentImpl({
     ],
   );
 
+  const [repromptUndo, setRepromptUndo] = useState<{
+    originalText: string;
+    mode: RepromptMode;
+  } | null>(null);
+  const lastRepromptError = useOnDeviceLlmStore((s) => s.lastRepromptError);
+
+  const handleReprompt = useCallback(
+    async (repromptMode: RepromptMode) => {
+      if (isComposerLocked) return;
+      const store = useOnDeviceLlmStore.getState();
+      if (store.progressByModel[store.selectedModel]) {
+        store.cancelDownload(store.selectedModel);
+        return;
+      }
+      if (store.isReprompting) return;
+
+      const snapshot = textSource.getSnapshot();
+      if (!canRepromptText(snapshot)) return;
+
+      const result = await store.repromptDraft(snapshot, repromptMode);
+      if (!result) return;
+      if (result.changed) {
+        setRepromptUndo({ originalText: snapshot, mode: repromptMode });
+        replaceUserInput(result.text);
+      }
+    },
+    [isComposerLocked, replaceUserInput, textSource],
+  );
+
+  const handleUndoReprompt = useCallback(() => {
+    if (!repromptUndo) return;
+    const restored = repromptUndo.originalText;
+    setRepromptUndo(null);
+    replaceUserInput(restored);
+  }, [replaceUserInput, repromptUndo]);
+
+  const handleDismissRepromptUndo = useCallback(() => {
+    setRepromptUndo(null);
+    useOnDeviceLlmStore.getState().clearRepromptError();
+  }, []);
+
   const beforeVoiceContent = useMemo(
-    () =>
-      hasAgent ? (
-        <View style={styles.contextWindowMeterSlot}>
-          <ContextWindowMeter
-            serverId={serverId}
-            agentId={agentId}
-            maxTokens={agentState.contextWindowMaxTokens}
-            usedTokens={agentState.contextWindowUsedTokens}
-            totalCostUsd={agentState.totalCostUsd}
-            sessionMetrics={agentState.sessionMetrics}
-            toolbarRing={TOOLBAR_RINGS[controlSizing]}
-          />
-        </View>
-      ) : null,
+    () => (
+      <View style={styles.rightControls}>
+        <ComposerRepromptButton
+          textSource={textSource}
+          glyph={toolbarGlyph}
+          disabled={isComposerLocked}
+          onReprompt={handleReprompt}
+        />
+        {hasAgent ? (
+          <View style={styles.contextWindowMeterSlot}>
+            <ContextWindowMeter
+              serverId={serverId}
+              agentId={agentId}
+              maxTokens={agentState.contextWindowMaxTokens}
+              usedTokens={agentState.contextWindowUsedTokens}
+              totalCostUsd={agentState.totalCostUsd}
+              sessionMetrics={agentState.sessionMetrics}
+              toolbarRing={TOOLBAR_RINGS[controlSizing]}
+            />
+          </View>
+        ) : null}
+      </View>
+    ),
     [
+      textSource,
+      toolbarGlyph,
+      isComposerLocked,
+      handleReprompt,
       hasAgent,
       serverId,
       agentId,
@@ -2688,6 +2748,15 @@ function ComposerContentImpl({
           <View style={inputAreaContentStyle}>
             {isFullscreen ? null : queueList}
             {!isFullscreen && sendErrorNode}
+            {!isFullscreen && (lastRepromptError || repromptUndo) ? (
+              <ComposerRepromptBanner
+                textSource={textSource}
+                undo={repromptUndo}
+                error={lastRepromptError}
+                onUndo={handleUndoReprompt}
+                onDismiss={handleDismissRepromptUndo}
+              />
+            ) : null}
 
             <ComposerAutocompleteBinding
               text={textSource}
@@ -2970,6 +3039,58 @@ const styles = StyleSheet.create((theme: Theme) => ({
   queueSendButton: {
     backgroundColor: theme.colors.accent,
   },
+  repromptButton: {
+    ...toolbarSlot(),
+    borderRadius: theme.borderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  repromptButtonBusy: {
+    backgroundColor: theme.colors.surface2,
+  },
+  repromptBadgeText: {
+    fontSize: 10,
+    fontWeight: theme.fontWeight.semibold,
+    color: theme.colors.accent,
+  },
+  repromptBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[1],
+    backgroundColor: theme.colors.surface1,
+    borderRadius: theme.borderRadius.lg,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    gap: theme.spacing[2],
+  },
+  repromptBannerLabelWrap: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+    minWidth: 0,
+  },
+  repromptBannerLabel: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    flexShrink: 1,
+  },
+  repromptUndoPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: theme.spacing[2],
+    paddingVertical: 3,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.surface2,
+  },
+  repromptUndoText: {
+    color: theme.colors.accent,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.semibold,
+  },
 })) as unknown as Record<string, object>;
 
 const ThemedAttachmentSpinner = withUnistyles(LoadingSpinner);
@@ -2984,9 +3105,156 @@ const ThemedImageIcon = withUnistyles(ImageIcon);
 const ThemedCameraIcon = withUnistyles(Camera);
 const ThemedClipboardPaste = withUnistyles(ClipboardPaste);
 const ThemedFileText = withUnistyles(FileText);
+const ThemedSparkles = withUnistyles(Sparkles);
+const ThemedRotateCcw = withUnistyles(RotateCcw);
 const iconForegroundMapping = (theme: Theme) => ({ color: theme.colors.foreground });
 const iconForegroundMutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const iconAccentMapping = (theme: Theme) => ({ color: theme.colors.accent });
 const iconAccentForegroundMapping = (theme: Theme) => ({ color: theme.colors.accentForeground });
+
+const ComposerRepromptButton = memo(function ComposerRepromptButton({
+  textSource,
+  glyph,
+  disabled,
+  onReprompt,
+}: {
+  textSource: ComposerTextSource;
+  glyph: ToolbarGlyph;
+  disabled: boolean;
+  onReprompt: (mode: RepromptMode) => void;
+}) {
+  const draftText = useSyncExternalStore(
+    textSource.subscribe,
+    textSource.getSnapshot,
+    textSource.getSnapshot,
+  );
+  const repromptEnabled = useOnDeviceLlmStore((s) => s.repromptEnabled);
+  const supported = useOnDeviceLlmStore((s) => s.supported);
+  const progress = useOnDeviceLlmStore((s) => s.progressByModel[s.selectedModel]);
+  const isReprompting = useOnDeviceLlmStore((s) => s.isReprompting);
+
+  const handlePress = useCallback(() => {
+    void onReprompt("fix");
+  }, [onReprompt]);
+
+  const handleLongPress = useCallback(() => {
+    void onReprompt("enhance");
+  }, [onReprompt]);
+
+  const isDownloading = Boolean(progress);
+  const buttonStyle = useCallback(
+    ({ pressed }: PressableStateCallbackType) => [
+      styles.repromptButton,
+      (isReprompting || isDownloading) && styles.repromptButtonBusy,
+      pressed && styles.discPressed,
+      disabled && styles.buttonDisabled,
+    ],
+    [disabled, isDownloading, isReprompting],
+  );
+
+  if (
+    Platform.OS !== "android" ||
+    !repromptEnabled ||
+    !supported ||
+    (!progress && !isReprompting && !canRepromptText(draftText))
+  ) {
+    return null;
+  }
+
+  let buttonContent: ReactElement;
+  if (progress) {
+    buttonContent = (
+      <Text style={styles.repromptBadgeText}>{formatRepromptDownloadBadge(progress.progress)}</Text>
+    );
+  } else if (isReprompting) {
+    buttonContent = <ThemedAttachmentSpinner size={16} uniProps={iconAccentMapping} />;
+  } else {
+    buttonContent = (
+      <ThemedSparkles
+        size={glyph.size}
+        strokeWidth={glyph.strokeWidth}
+        uniProps={iconForegroundMutedMapping}
+      />
+    );
+  }
+
+  return (
+    <Pressable
+      onPress={handlePress}
+      onLongPress={handleLongPress}
+      delayLongPress={420}
+      disabled={disabled || isReprompting}
+      accessibilityRole="button"
+      accessibilityLabel="Reprompt local (appui court : corriger, appui long : améliorer)"
+      testID="composer-reprompt-button"
+      style={buttonStyle}
+    >
+      {buttonContent}
+    </Pressable>
+  );
+});
+
+const ComposerRepromptBanner = memo(function ComposerRepromptBanner({
+  textSource,
+  undo,
+  error,
+  onUndo,
+  onDismiss,
+}: {
+  textSource: ComposerTextSource;
+  undo: { originalText: string; mode: RepromptMode } | null;
+  error: string | null;
+  onUndo: () => void;
+  onDismiss: () => void;
+}) {
+  const draftText = useSyncExternalStore(
+    textSource.subscribe,
+    textSource.getSnapshot,
+    textSource.getSnapshot,
+  );
+
+  useEffect(() => {
+    if (undo && !error && draftText.trim().length === 0) {
+      onDismiss();
+    }
+  }, [draftText, error, onDismiss, undo]);
+
+  if (error) {
+    return <Alert variant="error" size="sm" description={error} testID="composer-reprompt-error" />;
+  }
+
+  if (!undo || draftText.trim().length === 0) {
+    return null;
+  }
+
+  return (
+    <View style={styles.repromptBanner} testID="composer-reprompt-undo-bar">
+      <View style={styles.repromptBannerLabelWrap}>
+        <ThemedSparkles size={13} uniProps={iconAccentMapping} />
+        <Text numberOfLines={1} style={styles.repromptBannerLabel}>
+          {`${REPROMPT_MODE_LABELS[undo.mode]} appliqué (on-device)`}
+        </Text>
+      </View>
+      <Pressable
+        onPress={onUndo}
+        accessibilityRole="button"
+        accessibilityLabel="Annuler le reprompt"
+        style={styles.repromptUndoPill}
+      >
+        <ThemedRotateCcw size={12} uniProps={iconAccentMapping} />
+        <Text style={styles.repromptUndoText}>Annuler</Text>
+      </Pressable>
+      <Pressable
+        onPress={onDismiss}
+        accessibilityRole="button"
+        accessibilityLabel="Fermer le bandeau reprompt"
+        hitSlop={8}
+      >
+        <ThemedX size={14} uniProps={iconForegroundMutedMapping} />
+      </Pressable>
+    </View>
+  );
+});
 
 function renderForgeAttachmentIcon(icon: string): ReactElement {
   return (

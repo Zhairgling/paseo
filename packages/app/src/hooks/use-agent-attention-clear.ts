@@ -5,6 +5,7 @@ import { createAgentAttentionController } from "@/utils/agent-attention";
 import { getIsAppActivelyVisible } from "@/utils/app-visibility";
 import { isWeb } from "@/constants/platform";
 import { useStableEvent } from "@/hooks/use-stable-event";
+import { usePanelStore } from "@/stores/panel-store";
 
 type AttentionReason = "finished" | "error" | "permission" | null | undefined;
 
@@ -37,6 +38,11 @@ export function useAgentAttentionClear({
   onError,
 }: UseAgentAttentionClearParams): AgentAttentionClearController {
   const [isAppVisible, setIsAppVisible] = useState<boolean>(() => getIsAppActivelyVisible());
+  const isObscuredByDrawer = usePanelStore(
+    (state) =>
+      state.mobilePanel.target !== "agent" &&
+      (state.layout.isCompact || state.layout.leftSidebar === "overlay"),
+  );
   const clearAttention = useStableEvent(async (id: string) => {
     if (client) await client.clearAgentAttention(id);
   });
@@ -83,7 +89,7 @@ export function useAgentAttentionClear({
 
   useEffect(() => {
     controller.update({
-      focused: isScreenFocused && isAppVisible,
+      focused: isScreenFocused && isAppVisible && !isObscuredByDrawer,
       ready: Boolean(client && agentId && isConnected && isAgentDataReady),
       requiresAttention,
       attentionReason,
@@ -97,6 +103,7 @@ export function useAgentAttentionClear({
     isAgentDataReady,
     isScreenFocused,
     isAppVisible,
+    isObscuredByDrawer,
     requiresAttention,
     attentionReason,
     focusRequest,

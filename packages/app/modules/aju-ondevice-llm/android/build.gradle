@@ -1,0 +1,19 @@
+apply plugin: 'com.android.library'
+
+group = 'sh.paseo.ondevice.llm'
+version = '0.1.0'
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useExpoPublishing()
+useDefaultAndroidSdkVersions()
+
+android {
+  namespace "sh.paseo.ondevice.llm"
+}
+
+dependencies {
+  implementation "com.google.ai.edge.litertlm:litertlm-android:0.16.1"
+}

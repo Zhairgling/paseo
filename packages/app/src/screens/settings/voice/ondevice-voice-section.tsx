@@ -10,11 +10,13 @@ import {
   type SupertonicLang,
   type TtsEnginePreference,
 } from "@/stores/ondevice-speech-store";
+import { useOnDeviceLlmStore } from "@/stores/ondevice-llm-store";
+import { ONDEVICE_LLM_CATALOG } from "@/composer/reprompt";
 import { settingsStyles } from "@/styles/settings";
 import type { Theme } from "@/styles/theme";
 import { stopReadAloud, toggleReadAloud, useReadAloud } from "@/utils/read-aloud";
 import { Check, Download, Square, Trash2, Volume2, X } from "lucide-react-native";
-import { useCallback, useEffect } from "react";
+import { Fragment, useCallback, useEffect } from "react";
 import { Platform, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type {
@@ -22,6 +24,7 @@ import type {
   PocketVoiceId,
   SupertonicVoiceId,
 } from "../../../../modules/aju-ondevice-speech";
+import type { OnDeviceLlmModelId } from "../../../../modules/aju-ondevice-llm";
 
 const SAMPLE_PREVIEW_ID = "__ondevice_voice_preview__";
 const SAMPLE_TEXT_FR =
@@ -107,48 +110,33 @@ function OptionPill<T extends string | number>({
   );
 }
 
-function ModelDownloadCard({
-  modelId,
+function GenericModelDownloadCard({
   title,
   subtitle,
   expectedMb,
-  onAfterInstall,
+  installedBytes,
+  isReady,
+  isDownloading,
+  progress,
+  errorMsg,
+  onDownload,
+  onCancel,
+  onDelete,
 }: {
-  modelId: OnDeviceModelId;
   title: string;
   subtitle: string;
   expectedMb: string;
-  onAfterInstall?: () => void;
+  installedBytes?: number;
+  isReady: boolean;
+  isDownloading: boolean;
+  progress?: { progress: number; message?: string };
+  errorMsg?: string;
+  onDownload: () => void;
+  onCancel: () => void;
+  onDelete: () => void;
 }) {
-  const status = useOnDeviceSpeechStore((s) => s.statuses[modelId]);
-  const progress = useOnDeviceSpeechStore((s) => s.progressByModel[modelId]);
-  const errorMsg = useOnDeviceSpeechStore((s) => s.errorByModel[modelId]);
-  const downloadModel = useOnDeviceSpeechStore((s) => s.downloadModel);
-  const cancelDownload = useOnDeviceSpeechStore((s) => s.cancelDownload);
-  const deleteModel = useOnDeviceSpeechStore((s) => s.deleteModel);
-
-  const isDownloading = status?.status === "downloading" || Boolean(progress);
-  const isReady = Boolean(status?.ready);
   const pct = progress ? Math.round(progress.progress * 100) : 0;
-
-  const handleDownload = useCallback(() => {
-    void downloadModel(modelId)
-      .then((ok) => {
-        if (ok) onAfterInstall?.();
-        return ok;
-      })
-      .catch(() => false);
-  }, [downloadModel, modelId, onAfterInstall]);
-
-  const handleCancel = useCallback(() => {
-    cancelDownload(modelId);
-  }, [cancelDownload, modelId]);
-
-  const handleDelete = useCallback(() => {
-    void deleteModel(modelId);
-  }, [deleteModel, modelId]);
-
-  const sizeLabel = status?.installedBytes ? formatMb(status.installedBytes) : expectedMb;
+  const sizeLabel = installedBytes ? formatMb(installedBytes) : expectedMb;
 
   return (
     <View style={styles.modelCard}>
@@ -176,7 +164,7 @@ function ModelDownloadCard({
             <Text style={settingsStyles.rowHint}>
               {progress?.message ?? "Téléchargement…"} ({pct}%)
             </Text>
-            <Button size="sm" variant="ghost" leftIcon={X} onPress={handleCancel}>
+            <Button size="sm" variant="ghost" leftIcon={X} onPress={onCancel}>
               Annuler
             </Button>
           </View>
@@ -184,11 +172,11 @@ function ModelDownloadCard({
       ) : (
         <View style={styles.actionsRow}>
           {isReady ? (
-            <Button size="sm" variant="outline" leftIcon={Trash2} onPress={handleDelete}>
+            <Button size="sm" variant="outline" leftIcon={Trash2} onPress={onDelete}>
               Supprimer
             </Button>
           ) : (
-            <Button size="sm" variant="default" leftIcon={Download} onPress={handleDownload}>
+            <Button size="sm" variant="default" leftIcon={Download} onPress={onDownload}>
               {`Télécharger (${expectedMb})`}
             </Button>
           )}
@@ -197,6 +185,115 @@ function ModelDownloadCard({
 
       {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
     </View>
+  );
+}
+
+function ModelDownloadCard({
+  modelId,
+  title,
+  subtitle,
+  expectedMb,
+  onAfterInstall,
+}: {
+  modelId: OnDeviceModelId;
+  title: string;
+  subtitle: string;
+  expectedMb: string;
+  onAfterInstall?: () => void;
+}) {
+  const status = useOnDeviceSpeechStore((s) => s.statuses[modelId]);
+  const progress = useOnDeviceSpeechStore((s) => s.progressByModel[modelId]);
+  const errorMsg = useOnDeviceSpeechStore((s) => s.errorByModel[modelId]);
+  const downloadModel = useOnDeviceSpeechStore((s) => s.downloadModel);
+  const cancelDownload = useOnDeviceSpeechStore((s) => s.cancelDownload);
+  const deleteModel = useOnDeviceSpeechStore((s) => s.deleteModel);
+
+  const handleDownload = useCallback(() => {
+    void downloadModel(modelId)
+      .then((ok) => {
+        if (ok) onAfterInstall?.();
+        return ok;
+      })
+      .catch(() => false);
+  }, [downloadModel, modelId, onAfterInstall]);
+
+  const handleCancel = useCallback(() => {
+    cancelDownload(modelId);
+  }, [cancelDownload, modelId]);
+
+  const handleDelete = useCallback(() => {
+    void deleteModel(modelId);
+  }, [deleteModel, modelId]);
+
+  return (
+    <GenericModelDownloadCard
+      title={title}
+      subtitle={subtitle}
+      expectedMb={expectedMb}
+      installedBytes={status?.installedBytes}
+      isReady={Boolean(status?.ready)}
+      isDownloading={status?.status === "downloading" || Boolean(progress)}
+      progress={progress}
+      errorMsg={errorMsg}
+      onDownload={handleDownload}
+      onCancel={handleCancel}
+      onDelete={handleDelete}
+    />
+  );
+}
+
+function LlmModelDownloadCard({
+  modelId,
+  title,
+  subtitle,
+  expectedMb,
+}: {
+  modelId: OnDeviceLlmModelId;
+  title: string;
+  subtitle: string;
+  expectedMb: string;
+}) {
+  const status = useOnDeviceLlmStore((s) => s.statuses[modelId]);
+  const progress = useOnDeviceLlmStore((s) => s.progressByModel[modelId]);
+  const errorMsg = useOnDeviceLlmStore((s) => s.errorByModel[modelId]);
+  const downloadModel = useOnDeviceLlmStore((s) => s.downloadModel);
+  const cancelDownload = useOnDeviceLlmStore((s) => s.cancelDownload);
+  const deleteModel = useOnDeviceLlmStore((s) => s.deleteModel);
+  const setSelectedModel = useOnDeviceLlmStore((s) => s.setSelectedModel);
+
+  const handleDownload = useCallback(() => {
+    void downloadModel(modelId)
+      .then((ok) => {
+        if (ok) {
+          setSelectedModel(modelId);
+        }
+        return ok;
+      })
+      .catch(() => false);
+  }, [downloadModel, modelId, setSelectedModel]);
+
+  const handleCancel = useCallback(() => {
+    cancelDownload(modelId);
+  }, [cancelDownload, modelId]);
+
+  const handleDelete = useCallback(() => {
+    void deleteModel(modelId);
+  }, [deleteModel, modelId]);
+
+  return (
+    <GenericModelDownloadCard
+      title={title}
+      subtitle={subtitle}
+      expectedMb={expectedMb}
+      installedBytes={status?.installedBytes}
+      isReady={Boolean(status?.ready)}
+      isDownloading={status?.status === "downloading" || Boolean(progress)}
+      progress={progress}
+      errorMsg={errorMsg}
+      onDownload={handleDownload}
+      onCancel={handleCancel}
+      onDelete={handleDelete}
+    />
   );
 }
 
@@ -270,10 +367,12 @@ function SupertonicVoiceSelector({
 
 export function OnDeviceVoiceSection() {
   const state = useOnDeviceSpeechStore();
+  const llmState = useOnDeviceLlmStore();
   const preview = useReadAloud(SAMPLE_PREVIEW_ID);
 
   useEffect(() => {
     useOnDeviceSpeechStore.getState().ensureInitialized();
+    useOnDeviceLlmStore.getState().ensureInitialized();
   }, []);
 
   const asrReady = isOnDeviceAsrReady(state);
@@ -431,6 +530,52 @@ export function OnDeviceVoiceSection() {
             expectedMb="~123 Mo"
             onAfterInstall={handleAfterSupertonicInstall}
           />
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection title="Reprompt IA 100 % On-Device (LiteRT-LM)">
+        <SettingsCard>
+          <SettingsRow
+            label="Activer le bouton Reprompt (✨)"
+            hint="Appui court : corriger fautes & dictée · Appui long : améliorer & structurer le prompt"
+          >
+            <Switch
+              value={llmState.repromptEnabled}
+              onValueChange={llmState.setRepromptEnabled}
+              accessibilityLabel="Activer le reprompt local sur l'appareil"
+            />
+          </SettingsRow>
+          <View style={styles.cardDivider} />
+          <View style={styles.sectionBlock}>
+            <Text style={settingsStyles.rowTitle}>Modèle local (Qwen3 LiteRT-LM)</Text>
+            <Text style={settingsStyles.rowHint}>
+              {llmState.statuses[llmState.selectedModel]?.ready
+                ? "Prêt sur GPU/CPU local — zéro serveur"
+                : "Téléchargement automatique au 1er appui sur ✨ ou ci-dessous"}
+            </Text>
+            <View style={styles.pillsRow}>
+              {ONDEVICE_LLM_CATALOG.map((model) => (
+                <OptionPill
+                  key={model.id}
+                  value={model.id}
+                  label={`${model.id === "qwen3-0.6b-int4" ? "Qwen3 0.6B" : "Qwen3 1.7B"} (${model.badge})`}
+                  selected={llmState.selectedModel === model.id}
+                  onSelect={llmState.setSelectedModel}
+                />
+              ))}
+            </View>
+          </View>
+          {ONDEVICE_LLM_CATALOG.map((model) => (
+            <Fragment key={model.id}>
+              <View style={styles.cardDivider} />
+              <LlmModelDownloadCard
+                modelId={model.id}
+                title={model.title}
+                subtitle={model.subtitle}
+                expectedMb={model.expectedMb}
+              />
+            </Fragment>
+          ))}
         </SettingsCard>
       </SettingsSection>
     </View>

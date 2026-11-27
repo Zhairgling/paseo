@@ -101,6 +101,7 @@ import { useAjuCodeWidgetSync } from "@/homelab/widget-sync";
 import { usePinnedSessionsSync } from "@/homelab/use-pinned-sessions-sync";
 import { useSessionTagsSync } from "@/homelab/use-session-tags-sync";
 import { useOnDeviceSpeechStore } from "@/stores/ondevice-speech-store";
+import { useOnDeviceLlmStore } from "@/stores/ondevice-llm-store";
 import { AgentNavigationListener } from "@/desktop/agent-navigation";
 import { LegacyAgentSkillsMigration } from "@/agent-skills/legacy-migration";
 import { legacyFavoriteProfileMigration } from "@/agent-profiles/migration";
@@ -976,6 +977,7 @@ function AppShell() {
   useAjuCodeWidgetSync();
   useEffect(() => {
     useOnDeviceSpeechStore.getState().ensureInitialized();
+    useOnDeviceLlmStore.getState().ensureInitialized();
     if (getDesktopHost()) void ensureOsNotificationPermission();
   }, []);
   return (
