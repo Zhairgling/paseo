@@ -67,13 +67,12 @@ function dotStyleFor(kind: SessionDotKind) {
 
 function resolveSessionSubtitle(
   lastPreview: string | null,
-  repo: string,
-  modelBadge: string,
+  _repo: string,
+  _modelBadge: string,
   kind: SessionDotKind,
   isClosed: boolean,
 ): string {
   if (lastPreview) return lastPreview;
-  if (repo && repo !== modelBadge) return repo;
   if (kind === "permission") return "Permission requise";
   if (kind === "running") return "En cours…";
   if (kind === "attention") return "Nouvelle réponse";

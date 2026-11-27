@@ -514,10 +514,11 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
   if (isWeb) {
     themedSidebarChrome = <AppearanceStyleBoundary>{sidebarChrome}</AppearanceStyleBoundary>;
   }
+  const usesOverlaySidebar = isCompactLayout || sidebarPresentation === "overlay";
   const workspaceChrome = (
     <WindowLayoutSurface compact={isCompactLayout} style={rowStyle}>
       <WorkspaceLayoutModePublisher />
-      {!isCompactLayout ? (
+      {!usesOverlaySidebar ? (
         <WindowChromeRegion corners={appChromeLayout.sidebarCorners}>
           {themedSidebarChrome}
         </WindowChromeRegion>
@@ -560,7 +561,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
         <DesktopWindowControls />
         <FloatingPanelPortalHost />
       </AppearanceStyleBoundary>
-      {isCompactLayout ? (
+      {usesOverlaySidebar ? (
         <CompactSidebarHost visible={sidebarVisible} interactive={chromeEnabled}>
           {themedSidebarChrome}
         </CompactSidebarHost>

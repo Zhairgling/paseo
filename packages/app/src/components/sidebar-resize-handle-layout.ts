@@ -13,8 +13,8 @@
  */
 
 export const POINTER_HANDLE_WIDTH = 10;
-export const TOUCH_HANDLE_WIDTH = 24;
-export const TOUCH_HANDLE_HEIGHT = 88;
+export const TOUCH_HANDLE_WIDTH = 44;
+export const TOUCH_HANDLE_HEIGHT = 136;
 
 /**
  * A finger resting on the grip drifts before it commits. Requiring horizontal
@@ -23,8 +23,8 @@ export const TOUCH_HANDLE_HEIGHT = 88;
  * A mouse press moves less than either threshold, so pointer drags are
  * unaffected.
  */
-export const SIDEBAR_RESIZE_ACTIVATION_OFFSET = 6;
-export const SIDEBAR_RESIZE_FAIL_OFFSET = 12;
+export const SIDEBAR_RESIZE_ACTIVATION_OFFSET = 4;
+export const SIDEBAR_RESIZE_FAIL_OFFSET = 18;
 
 export type SidebarResizeEdge = "left" | "right";
 

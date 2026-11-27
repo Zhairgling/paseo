@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import com.k2fsa.sherpa.onnx.FeatureConfig
@@ -29,6 +30,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.roundToInt
 
@@ -53,6 +55,10 @@ internal class OnDeviceSpeechEngine(
   private val fallbackRawSamples = ArrayList<Float>(16_000 * 30)
   private val decodedSegments = ArrayList<String>()
   private val pendingFutures = ArrayList<Future<*>>()
+  private var lastFinalizedSampleCount = 0
+  private var lastLiveDecodeMs = 0L
+  private var lastLiveDecodedSampleCount = 0
+  private val livePreviewInFlight = AtomicBoolean(false)
   @Volatile private var asrActive = false
 
   // Streaming AudioTrack + cancellation token for TTS
@@ -129,9 +135,9 @@ internal class OnDeviceSpeechEngine(
       val vadConfig = VadModelConfig(
         sileroVadModelConfig = SileroVadModelConfig(
           model = "$dir/silero_vad_v5.onnx",
-          threshold = 0.45f,
-          minSilenceDuration = 0.45f,
-          minSpeechDuration = 0.20f,
+          threshold = 0.25f,
+          minSilenceDuration = 0.55f,
+          minSpeechDuration = 0.08f,
           windowSize = 512,
           maxSpeechDuration = 28.0f,
         ),
@@ -152,6 +158,10 @@ internal class OnDeviceSpeechEngine(
       fallbackRawSamples.clear()
       decodedSegments.clear()
       pendingFutures.clear()
+      lastFinalizedSampleCount = 0
+      lastLiveDecodeMs = 0L
+      lastLiveDecodedSampleCount = 0
+      livePreviewInFlight.set(false)
       asrActive = true
     }
   }
@@ -168,10 +178,12 @@ internal class OnDeviceSpeechEngine(
       incoming[i] = bb.getShort().toFloat() / 32768.0f
     }
 
+    var liveWindow: FloatArray? = null
+    var liveSnapshotTotalSamples = 0
     synchronized(asrLock) {
       if (!asrActive) return
       val vad = asrVad ?: return
-      // Keep up to 90s as fallback in case the speaker pauses < minSpeechDuration
+      // Keep up to 90s raw PCM so short sessions never lose initial syllables to VAD onset latency
       if (fallbackRawSamples.size + incoming.size <= 16_000 * 90) {
         for (s in incoming) fallbackRawSamples.add(s)
       }
@@ -194,6 +206,48 @@ internal class OnDeviceSpeechEngine(
       }
 
       drainVadSegmentsLocked(vad)
+
+      val nowMs = SystemClock.elapsedRealtime()
+      val newSamplesSincePreview = fallbackRawSamples.size - lastLiveDecodedSampleCount
+      if (
+        !livePreviewInFlight.get() &&
+        newSamplesSincePreview >= 12_800 &&
+        nowMs - lastLiveDecodeMs >= 750L
+      ) {
+        val windowStart = maxOf(0, minOf(lastFinalizedSampleCount, fallbackRawSamples.size) - 6_400)
+        val clampedStart = maxOf(windowStart, fallbackRawSamples.size - 16_000 * 20)
+        val len = fallbackRawSamples.size - clampedStart
+        if (len >= 6_400) {
+          val copy = FloatArray(len)
+          for (i in 0 until len) {
+            copy[i] = fallbackRawSamples[clampedStart + i]
+          }
+          liveWindow = copy
+          liveSnapshotTotalSamples = fallbackRawSamples.size
+          lastLiveDecodeMs = nowMs
+          lastLiveDecodedSampleCount = liveSnapshotTotalSamples
+          livePreviewInFlight.set(true)
+        }
+      }
+    }
+
+    val previewAudio = liveWindow
+    if (previewAudio != null) {
+      asrExecutor.submit {
+        try {
+          if (!asrActive) return@submit
+          val tailText = decodeFloatSamples(previewAudio)
+          if (tailText.isNotEmpty() && asrActive) {
+            val committed = synchronized(decodedSegments) {
+              decodedSegments.joinToString(" ").trim()
+            }
+            val fullPartial = if (committed.isEmpty()) tailText else "$committed $tailText"
+            emitAsrPartial(fullPartial.trim())
+          }
+        } finally {
+          livePreviewInFlight.set(false)
+        }
+      }
     }
   }
 
@@ -203,6 +257,7 @@ internal class OnDeviceSpeechEngine(
       vad.pop()
       val samples = segment.samples
       if (samples.isEmpty()) continue
+      lastFinalizedSampleCount = fallbackRawSamples.size
       val future = asrExecutor.submit {
         val text = decodeFloatSamples(samples)
         if (text.isNotEmpty()) {
@@ -223,30 +278,45 @@ internal class OnDeviceSpeechEngine(
     val rawSnapshot: FloatArray
     synchronized(asrLock) {
       if (!asrActive) return ""
-      val vad = asrVad
-      if (vad != null) {
-        if (vadRemainder.isNotEmpty()) {
-          val padded = FloatArray(512)
-          System.arraycopy(vadRemainder, 0, padded, 0, minOf(vadRemainder.size, 512))
-          vad.acceptWaveform(padded)
-          vadRemainder = FloatArray(0)
+      rawSnapshot = fallbackRawSamples.toFloatArray()
+      val useFullRawPass = rawSnapshot.size in 1600..(16_000 * 25)
+      if (!useFullRawPass) {
+        val vad = asrVad
+        if (vad != null) {
+          if (vadRemainder.isNotEmpty()) {
+            val padded = FloatArray(512)
+            System.arraycopy(vadRemainder, 0, padded, 0, minOf(vadRemainder.size, 512))
+            vad.acceptWaveform(padded)
+            vadRemainder = FloatArray(0)
+          }
+          vad.flush()
+          drainVadSegmentsLocked(vad)
+          vad.reset()
         }
-        vad.flush()
-        drainVadSegmentsLocked(vad)
-        vad.reset()
+      } else {
+        asrVad?.reset()
+        vadRemainder = FloatArray(0)
       }
       futuresSnapshot = ArrayList(pendingFutures)
       pendingFutures.clear()
-      rawSnapshot = fallbackRawSamples.toFloatArray()
       fallbackRawSamples.clear()
+      lastFinalizedSampleCount = 0
       asrActive = false
     }
 
-    for (f in futuresSnapshot) {
-      try {
-        f.get()
-      } catch (_: Throwable) {
-        // Ignore cancelled futures
+    if (rawSnapshot.size in 1600..(16_000 * 25)) {
+      for (f in futuresSnapshot) f.cancel(false)
+      val fullText = decodeFloatSamples(rawSnapshot).replace(Regex("\\s+"), " ").trim()
+      if (fullText.isNotEmpty()) {
+        return fullText
+      }
+    } else {
+      for (f in futuresSnapshot) {
+        try {
+          f.get()
+        } catch (_: Throwable) {
+          // Ignore cancelled futures
+        }
       }
     }
 
@@ -265,6 +335,8 @@ internal class OnDeviceSpeechEngine(
       asrActive = false
       vadRemainder = FloatArray(0)
       fallbackRawSamples.clear()
+      lastFinalizedSampleCount = 0
+      livePreviewInFlight.set(false)
       for (f in pendingFutures) f.cancel(true)
       pendingFutures.clear()
       synchronized(decodedSegments) {

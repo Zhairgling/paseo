@@ -5,7 +5,6 @@ import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { X, ArrowUp, RefreshCcw, Check, Mic, Pencil } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { VolumeMeter } from "./volume-meter";
-import { FOOTER_HEIGHT } from "@/constants/layout";
 import type { DictationStatus } from "@/hooks/use-dictation";
 
 interface DictationControlsProps {
@@ -338,19 +337,18 @@ const styles = StyleSheet.create((theme) => ({
   },
 }));
 
-const OVERLAY_BUTTON_SIZE = 44;
-const OVERLAY_VERTICAL_PADDING = (FOOTER_HEIGHT - OVERLAY_BUTTON_SIZE) / 2;
+const OVERLAY_BUTTON_SIZE = 38;
 
 const overlayStyles = StyleSheet.create((theme) => ({
   container: {
     flexDirection: "row",
     alignItems: "center",
     width: "100%",
-    borderRadius: theme.borderRadius["2xl"],
+    borderRadius: theme.borderRadius.xl,
     justifyContent: "space-between",
-    paddingHorizontal: theme.spacing[4],
-    paddingVertical: OVERLAY_VERTICAL_PADDING,
-    height: FOOTER_HEIGHT,
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[1.5],
+    minHeight: 48,
   },
   cancelButton: {
     width: OVERLAY_BUTTON_SIZE,

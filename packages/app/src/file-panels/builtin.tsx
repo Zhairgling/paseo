@@ -1,6 +1,13 @@
 import { useWorkspace, useFileUrl, type PluginFilePanelProps } from "@getpaseo/plugin/client";
-import { useCallback, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { useCallback, useRef, useState } from "react";
+import {
+  ScrollView,
+  Text,
+  View,
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { ZoomableImage } from "@/components/zoomable-viewport/image";
 import { useSessionStore } from "@/stores/session-store";
@@ -30,10 +37,77 @@ function MarkdownPreview({ text, params, workspaceId, host }: TextFilePreviewPro
   const client = useSessionStore((state) => state.sessions[host.id]?.client ?? null);
   const workspaceRoot = useWorkspace(workspaceId, (workspace) => workspace.directory);
   const [rendered, setRendered] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollMetricsRef = useRef({
+    scrollY: 0,
+    ratio: 0,
+    layoutWidth: 0,
+    layoutHeight: 0,
+    contentHeight: 0,
+  });
+
   const handleLayout = useCallback(() => setRendered(true), []);
+
+  const restoreScrollRatioIfWidthChanged = useCallback(
+    (nextLayoutWidth: number, nextLayoutHeight: number, nextContentHeight: number) => {
+      const m = scrollMetricsRef.current;
+      const widthChanged = m.layoutWidth > 0 && Math.abs(nextLayoutWidth - m.layoutWidth) > 20;
+      m.layoutWidth = nextLayoutWidth;
+      m.layoutHeight = nextLayoutHeight;
+      m.contentHeight = nextContentHeight;
+      if (widthChanged && m.ratio > 0) {
+        const maxScroll = Math.max(0, nextContentHeight - nextLayoutHeight);
+        const targetY = Math.round(m.ratio * maxScroll);
+        m.scrollY = targetY;
+        scrollViewRef.current?.scrollTo({ y: targetY, animated: false });
+      }
+    },
+    [],
+  );
+
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const maxScroll = Math.max(0, contentSize.height - layoutMeasurement.height);
+    scrollMetricsRef.current.scrollY = contentOffset.y;
+    scrollMetricsRef.current.layoutWidth = layoutMeasurement.width;
+    scrollMetricsRef.current.layoutHeight = layoutMeasurement.height;
+    scrollMetricsRef.current.contentHeight = contentSize.height;
+    scrollMetricsRef.current.ratio =
+      maxScroll > 0 ? Math.min(1, Math.max(0, contentOffset.y / maxScroll)) : 0;
+  }, []);
+
+  const handleScrollLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const { width, height } = event.nativeEvent.layout;
+      restoreScrollRatioIfWidthChanged(width, height, scrollMetricsRef.current.contentHeight);
+    },
+    [restoreScrollRatioIfWidthChanged],
+  );
+
+  const handleContentSizeChange = useCallback((_width: number, height: number) => {
+    const m = scrollMetricsRef.current;
+    if (m.ratio > 0 && m.layoutHeight > 0 && Math.abs(height - m.contentHeight) > 24) {
+      const maxScroll = Math.max(0, height - m.layoutHeight);
+      const targetY = Math.round(m.ratio * maxScroll);
+      m.contentHeight = height;
+      m.scrollY = targetY;
+      scrollViewRef.current?.scrollTo({ y: targetY, animated: false });
+    } else {
+      m.contentHeight = height;
+    }
+  }, []);
+
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator>
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.container}
+        showsVerticalScrollIndicator
+        onScroll={handleScroll}
+        onLayout={handleScrollLayout}
+        onContentSizeChange={handleContentSizeChange}
+        scrollEventThrottle={32}
+      >
         <View onLayout={handleLayout}>
           <FileMarkdownPreview
             source={text}

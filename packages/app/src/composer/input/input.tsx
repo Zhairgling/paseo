@@ -1602,12 +1602,16 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       };
     }, [onFocusChange]);
 
+    const dictationBaseTextRef = useRef<string | null>(null);
+
     const handleDictationTranscript = useCallback(
       (text: string, _meta: { requestId: string }) => {
         const autoSend = sendAfterTranscriptRef.current;
         sendAfterTranscriptRef.current = false;
+        const baseValue = dictationBaseTextRef.current ?? valueRef.current;
+        dictationBaseTextRef.current = null;
         applyDictationTranscript(text, {
-          value: valueRef.current,
+          value: baseValue,
           defaultSendBehavior,
           isAgentRunning,
           onQueue,
@@ -1664,7 +1668,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       isRecording: isDictating,
       isRecordingActive: isDictationActive,
       isProcessing: isDictationProcessing,
-      partialTranscript: _dictationPartialTranscript,
+      partialTranscript: dictationPartialTranscript,
       volume: dictationVolume,
       duration: dictationDuration,
       error: dictationError,
@@ -1685,6 +1689,23 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       enableDuration: true,
     });
 
+    useEffect(() => {
+      if (isDictating && dictationBaseTextRef.current === null) {
+        dictationBaseTextRef.current = valueRef.current;
+      } else if (!isDictating && !isDictationProcessing && dictationStatus === "idle") {
+        dictationBaseTextRef.current = null;
+      }
+    }, [dictationStatus, isDictating, isDictationProcessing]);
+
+    useEffect(() => {
+      if (!isDictating || !dictationPartialTranscript) {
+        return;
+      }
+      const base = dictationBaseTextRef.current ?? "";
+      const shouldPad = base.length > 0 && !/\s$/.test(base);
+      replaceText(`${base}${shouldPad ? " " : ""}${dictationPartialTranscript}`);
+    }, [dictationPartialTranscript, isDictating, replaceText]);
+
     const isRealtimeVoiceForCurrentAgent = computeIsRealtimeVoiceForAgent(
       voice,
       voiceServerId,
@@ -1696,7 +1717,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       dictationStatus,
     );
     const showRealtimeOverlay = isRealtimeVoiceForCurrentAgent;
-    const showOverlay = showDictationOverlay || showRealtimeOverlay;
+    const showOverlay = showRealtimeOverlay;
     const surfacePresentation = resolveComposerSurfacePresentation(showOverlay);
 
     useEffect(() => {
@@ -1749,8 +1770,13 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     );
 
     const handleCancelRecording = useCallback(async () => {
+      const base = dictationBaseTextRef.current;
+      dictationBaseTextRef.current = null;
       await cancelDictation();
-    }, [cancelDictation]);
+      if (base !== null) {
+        replaceText(base);
+      }
+    }, [cancelDictation, replaceText]);
 
     const handleAcceptRecording = useCallback(async () => {
       sendAfterTranscriptRef.current = false;
@@ -1767,8 +1793,13 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     }, [retryFailedDictation]);
 
     const handleDiscardFailedRecording = useCallback(() => {
+      const base = dictationBaseTextRef.current;
+      dictationBaseTextRef.current = null;
       discardFailedDictation();
-    }, [discardFailedDictation]);
+      if (base !== null) {
+        replaceText(base);
+      }
+    }, [discardFailedDictation, replaceText]);
 
     const handleStopRealtimeVoice = useCallback(async () => {
       try {
@@ -2291,12 +2322,29 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const toolbar = useMemo(
       () => (
         <>
-          {!isFullscreen && !showOverlay && dictationStartError ? (
+          {showDictationOverlay ? (
+            <DictationOverlay
+              volume={dictationVolume}
+              duration={dictationDuration}
+              isRecording={isDictating}
+              isProcessing={isDictationProcessing}
+              status={dictationStatus}
+              errorText={dictationStatus === "failed" ? (dictationError ?? undefined) : undefined}
+              onCancel={handleCancelRecording}
+              onAccept={handleAcceptRecording}
+              onAcceptAndSend={handleAcceptAndSendRecording}
+              onRetry={dictationStatus === "failed" ? handleRetryFailedRecording : undefined}
+              onDiscard={dictationStatus === "failed" ? handleDiscardFailedRecording : undefined}
+            />
+          ) : null}
+          {!isFullscreen && !showDictationOverlay && !showOverlay && dictationStartError ? (
             <Text accessibilityRole="alert" style={styles.dictationStartError}>
               {t(`message.dictation.${dictationStartError}`)}
             </Text>
           ) : null}
-          <View style={isFullscreen ? styles.hiddenToolbar : buttonRowStyle}>
+          <View
+            style={isFullscreen || showDictationOverlay ? styles.hiddenToolbar : buttonRowStyle}
+          >
             {/* Toolbar left: attachment button + agent controls */}
             <View style={styles.leftButtonGroup}>
               {!isFullscreen && (
@@ -2336,6 +2384,18 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         </>
       ),
       [
+        dictationVolume,
+        dictationDuration,
+        isDictating,
+        isDictationProcessing,
+        dictationStatus,
+        dictationError,
+        showDictationOverlay,
+        handleCancelRecording,
+        handleAcceptRecording,
+        handleAcceptAndSendRecording,
+        handleRetryFailedRecording,
+        handleDiscardFailedRecording,
         buttonRowStyle,
         isFullscreen,
         mode.showAttachments,
@@ -2369,7 +2429,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
           pointerEvents={surfacePresentation.overlay.pointerEvents}
         >
           <MessageInputOverlay
-            showDictationOverlay={showDictationOverlay}
+            showDictationOverlay={false}
             showRealtimeOverlay={showRealtimeOverlay}
             voice={voice}
             dictationVolume={dictationVolume}
@@ -2390,7 +2450,6 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       [
         overlayContainerStyle,
         surfacePresentation.overlay.pointerEvents,
-        showDictationOverlay,
         showRealtimeOverlay,
         voice,
         dictationVolume,

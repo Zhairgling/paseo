@@ -5,5 +5,6 @@ export interface ExplorerFrameProps {
   persistenceKey: string;
   isOpen: boolean;
   isWorkspaceActive: boolean;
+  fullscreen?: boolean;
   surfaceColor?: string;
 }

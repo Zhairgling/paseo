@@ -20,6 +20,7 @@ import { RetainedPanel } from "@/components/retained-panel";
 import { Button } from "@/components/ui/button";
 import { isWeb } from "@/constants/platform";
 import { useAppSettings } from "@/hooks/use-settings";
+import { usePaneContext } from "@/panels/pane-context";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { formatFileSize } from "@/utils/format-file-size";
 import type { Theme } from "@/styles/theme";
@@ -121,6 +122,7 @@ function ReadonlyTextFile({
 }: TextFilePanelProps & { presentation: "highlighted" | "plain" }) {
   const text = useFileText(file);
   const { t } = useTranslation();
+  const { host: paneHost } = usePaneContext();
   const [view, setView] = useTextFileView(params, revision);
   const sourceLocation = useMemo(
     () => ({ path: params.path, lineStart: params.lineStart, lineEnd: params.lineEnd }),
@@ -135,14 +137,17 @@ function ReadonlyTextFile({
     );
   }
   const showPreview = Preview !== undefined && view === "preview";
+  const hideToolbarInExplorer = paneHost === "explorer";
   return (
     <View style={styles.container}>
-      <TextFileToolbar
-        size={file.size}
-        lineCount={text.text.split("\n").length}
-        view={Preview ? view : undefined}
-        onViewChange={Preview ? setView : undefined}
-      />
+      {hideToolbarInExplorer ? null : (
+        <TextFileToolbar
+          size={file.size}
+          lineCount={text.text.split("\n").length}
+          view={Preview ? view : undefined}
+          onViewChange={Preview ? setView : undefined}
+        />
+      )}
       {Preview ? (
         <RetainedPreview
           active={showPreview}
@@ -177,6 +182,7 @@ function EditableTextFile({
 }: TextFilePanelProps) {
   const { settings } = useAppSettings();
   const { t } = useTranslation();
+  const { host: paneHost } = usePaneContext();
   const [model] = useState(() => new FileEditorModel({ file }));
   const [view, setView] = useTextFileView(params, revision);
   const [cursor, setCursor] = useState({ line: 1, column: 1 });
@@ -237,18 +243,21 @@ function EditableTextFile({
     };
   }
   const showPreview = Preview !== undefined && view === "preview";
+  const hideToolbar = paneHost === "explorer" && conflict === null;
   return (
     <View style={styles.container}>
-      <TextFileToolbar
-        size={file.size}
-        lineCount={snapshot.content.split("\n").length}
-        view={Preview ? view : undefined}
-        onViewChange={Preview ? setView : undefined}
-        editorStatus={snapshot.status}
-        cursor={showPreview ? undefined : cursor}
-        vimMode={showPreview ? null : vimMode}
-        conflict={conflict}
-      />
+      {hideToolbar ? null : (
+        <TextFileToolbar
+          size={file.size}
+          lineCount={snapshot.content.split("\n").length}
+          view={Preview ? view : undefined}
+          onViewChange={Preview ? setView : undefined}
+          editorStatus={snapshot.status}
+          cursor={showPreview ? undefined : cursor}
+          vimMode={showPreview ? null : vimMode}
+          conflict={conflict}
+        />
+      )}
       {Preview ? (
         <RetainedPreview
           active={showPreview}

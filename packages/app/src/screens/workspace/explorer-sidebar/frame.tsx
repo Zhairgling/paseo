@@ -19,6 +19,7 @@ function ExplorerFrameBase({
   presentation,
   isOpen,
   isWorkspaceActive,
+  fullscreen = false,
   persistenceKey,
 }: ExplorerFrameProps) {
   const [containerWidth, setContainerWidth] = useState(0);
@@ -29,7 +30,7 @@ function ExplorerFrameBase({
   const overlay = presentation === "overlay";
   const settledOpen = useIsMobilePanelActive("file-explorer");
   const active = isWorkspaceActive && (overlay ? settledOpen : isOpen);
-  const resizeEnabled = isWorkspaceActive && !overlay && isOpen;
+  const resizeEnabled = isWorkspaceActive && !overlay && isOpen && !fullscreen;
   const { gesture, gestureRef } = useCloseFileExplorerGesture(isWorkspaceActive && overlay);
   const storedWidth = useWorkspaceLayoutStore(
     (state) => state.explorerSidebarWidthByWorkspace[persistenceKey],
@@ -43,6 +44,7 @@ function ExplorerFrameBase({
     width: resolveExplorerSidebarWidth({ requestedWidth: storedWidth, containerWidth }),
     containerWidth,
     overlay,
+    fullscreen,
     resizeEnabled,
     onResize,
   });

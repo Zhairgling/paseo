@@ -563,6 +563,7 @@ export interface WorkspaceDesktopTabsRowProps {
   onTogglePaneMaximized?: () => void;
   onSplitRight?: () => void;
   onSplitDown?: () => void;
+  hideNewTabButton?: boolean;
   focusModeEnabled: boolean;
   onExitFocusMode: () => void;
 }
@@ -1076,6 +1077,30 @@ export function WorkspaceDesktopTabsRow(props: WorkspaceDesktopTabsRowProps) {
   );
 }
 
+function resolveNewTabPlacement(
+  hideNewTabButton: boolean,
+  requiresHorizontalScrollFallback: boolean,
+): "none" | "inline" | "toolbar" {
+  if (hideNewTabButton) return "none";
+  return requiresHorizontalScrollFallback ? "toolbar" : "inline";
+}
+
+function computeActionsReservedWidth(input: {
+  hideNewTabButton: boolean;
+  focusModeEnabled: boolean;
+  exitFocusModeWidth: number;
+  showPaneSplitActions: boolean;
+  showPaneMaximizeAction: boolean;
+}): number {
+  return Math.max(
+    0,
+    (input.hideNewTabButton ? 0 : DEFAULT_INLINE_ADD_BUTTON_RESERVED_WIDTH) +
+      (input.focusModeEnabled ? input.exitFocusModeWidth : 0) +
+      (input.showPaneSplitActions ? PANE_SPLIT_ACTIONS_RESERVED_WIDTH : 0) +
+      (input.showPaneMaximizeAction ? PANE_MAXIMIZE_ACTION_RESERVED_WIDTH : 0),
+  );
+}
+
 function ResolvedWorkspaceDesktopTabsRow({
   host = "main",
   launchPurpose = "primary",
@@ -1108,6 +1133,7 @@ function ResolvedWorkspaceDesktopTabsRow({
   onTogglePaneMaximized,
   onSplitRight,
   onSplitDown,
+  hideNewTabButton = false,
   focusModeEnabled,
   onExitFocusMode,
 }: ResolvedWorkspaceDesktopTabsRowProps) {
@@ -1138,13 +1164,13 @@ function ResolvedWorkspaceDesktopTabsRow({
   const layoutMetrics = useMemo(
     () => ({
       rowHorizontalInset: 0,
-      actionsReservedWidth: Math.max(
-        0,
-        DEFAULT_INLINE_ADD_BUTTON_RESERVED_WIDTH +
-          (focusModeEnabled ? exitFocusModeWidth : 0) +
-          (showPaneSplitActions ? PANE_SPLIT_ACTIONS_RESERVED_WIDTH : 0) +
-          (showPaneMaximizeAction ? PANE_MAXIMIZE_ACTION_RESERVED_WIDTH : 0),
-      ),
+      actionsReservedWidth: computeActionsReservedWidth({
+        hideNewTabButton,
+        focusModeEnabled,
+        exitFocusModeWidth,
+        showPaneSplitActions,
+        showPaneMaximizeAction,
+      }),
       rowPaddingHorizontal: TAB_ROW_PADDING_HORIZONTAL,
       tabGap: TAB_CHIP_GAP,
       minTabWidth: TAB_MIN_WIDTH,
@@ -1154,7 +1180,13 @@ function ResolvedWorkspaceDesktopTabsRow({
       tabHorizontalPadding: TAB_CHIP_HORIZONTAL_PADDING,
       closeButtonWidth: TAB_CLOSE_BUTTON_RESERVED_WIDTH,
     }),
-    [exitFocusModeWidth, focusModeEnabled, showPaneMaximizeAction, showPaneSplitActions],
+    [
+      exitFocusModeWidth,
+      focusModeEnabled,
+      hideNewTabButton,
+      showPaneMaximizeAction,
+      showPaneSplitActions,
+    ],
   );
 
   const panePanelKinds = useMemo(() => tabs.map(({ tab }) => tab.kind), [tabs]);
@@ -1458,7 +1490,8 @@ function ResolvedWorkspaceDesktopTabsRow({
             getItemData={getTabDragData}
             renderItem={renderTab}
           />
-          {!layout.requiresHorizontalScrollFallback ? (
+          {resolveNewTabPlacement(hideNewTabButton, layout.requiresHorizontalScrollFallback) ===
+          "inline" ? (
             <WorkspaceNewTabButton
               panePanelKinds={panePanelKinds}
               host={host}
@@ -1482,7 +1515,10 @@ function ResolvedWorkspaceDesktopTabsRow({
         panePanelKinds={panePanelKinds}
         host={host}
         launchPurpose={launchPurpose}
-        showNewTabButton={layout.requiresHorizontalScrollFallback}
+        showNewTabButton={
+          resolveNewTabPlacement(hideNewTabButton, layout.requiresHorizontalScrollFallback) ===
+          "toolbar"
+        }
         showSplitActions={showPaneSplitActions}
         showMaximizeAction={showPaneMaximizeAction}
         paneMaximized={paneMaximized}

@@ -24,7 +24,7 @@ export function WorkspaceHeaderProjectRow({
 }) {
   const isCompact = useIsCompactFormFactor();
   const hostBadge = useHostBadges({ enabled: isCompact }).get(serverId) ?? null;
-  const showProject = isSubtitleDistinct || isCompact;
+  const showProject = isSubtitleDistinct && subtitle.trim().length > 0;
   if (!showProject && !hostBadge) {
     return null;
   }

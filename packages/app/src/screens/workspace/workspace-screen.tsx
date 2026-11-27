@@ -83,6 +83,7 @@ import {
   useIsExplorerSidebarOpen,
 } from "@/workspace-tabs/explorer-sidebar";
 import { useOpenedFilesStore } from "@/stores/opened-files-store";
+import { useExplorerFullscreenStore } from "@/panels/explorer-fullscreen-store";
 import {
   openPreferredWorkspacePreview,
   openPreferredWorkspaceTarget,
@@ -849,27 +850,24 @@ function useEffectiveWorkspaceHeader(input: {
       const fileName = segments[segments.length - 1] ?? filePath;
       return {
         title: fileName,
-        subtitle: input.workspaceHeaderSubtitle,
-        isSubtitleDistinct: input.workspaceHeaderSubtitle.length > 0,
+        subtitle: "",
+        isSubtitleDistinct: false,
       };
     }
     if (!settings.sessionMinimalHeader || !activeSessionAgent) {
       return {
         title: input.workspaceHeaderTitle,
-        subtitle: input.workspaceHeaderSubtitle,
-        isSubtitleDistinct: input.isWorkspaceHeaderSubtitleDistinct,
+        subtitle: "",
+        isSubtitleDistinct: false,
       };
     }
     const title =
       activeSessionAgent.title?.trim() || `Session ${activeSessionAgent.id.slice(0, 7)}`;
-    const cleaned = activeSessionAgent.cwd.replace(/[\\/]+$/, "");
-    const parts = cleaned.split(/[\\/]/).filter(Boolean);
-    const repo = parts[parts.length - 1] ?? input.workspaceHeaderSubtitle;
     const modelBadge = formatSessionModelBadge(
       activeSessionAgent.provider,
       activeSessionAgent.runtimeInfo?.model ?? activeSessionAgent.model,
     );
-    const subtitle = modelBadge ? `${modelBadge} · ${repo}` : repo;
+    const subtitle = modelBadge ?? "";
     return {
       title,
       subtitle,
@@ -878,8 +876,6 @@ function useEffectiveWorkspaceHeader(input: {
   }, [
     activeSessionAgent,
     input.activeTabDescriptor,
-    input.isWorkspaceHeaderSubtitleDistinct,
-    input.workspaceHeaderSubtitle,
     input.workspaceHeaderTitle,
     settings.sessionMinimalHeader,
   ]);
@@ -1251,18 +1247,51 @@ function useLastMainPane(input: {
 }
 
 /** The docked explorer beside the center column takes the top-right window-chrome corner. */
+function computeExplorerFullscreenVisible(
+  isFullscreen: boolean,
+  explorerShowing: boolean,
+  focusModeEnabled: boolean,
+): boolean {
+  return isFullscreen && explorerShowing && !focusModeEnabled;
+}
+
+function toggleWorkspaceExplorerSafely(input: {
+  desktopFocusModeEnabled: boolean;
+  isMobile: boolean;
+  persistenceKey: string | null;
+  toggleFocusMode: () => void;
+  exitExplorerFullscreen: () => void;
+}) {
+  if (input.desktopFocusModeEnabled) {
+    input.toggleFocusMode();
+    showExplorerSidebar({ isCompact: input.isMobile, workspaceKey: input.persistenceKey });
+    return;
+  }
+  if (isExplorerSidebarOpen({ isCompact: input.isMobile, workspaceKey: input.persistenceKey })) {
+    input.exitExplorerFullscreen();
+  }
+  toggleExplorerSidebar({
+    isCompact: input.isMobile,
+    workspaceKey: input.persistenceKey,
+  });
+}
+
 function DesktopCenterColumnChrome({
   explorerOpen,
   focusModeEnabled,
+  hiddenForFullscreen = false,
   children,
 }: {
   explorerOpen: boolean;
   focusModeEnabled: boolean;
+  hiddenForFullscreen?: boolean;
   children: ReactNode;
 }) {
   return (
     <WindowChromeRegion corners={explorerOpen && !focusModeEnabled ? "top-left" : "both"}>
-      <View style={styles.centerColumn}>{children}</View>
+      <View style={[styles.centerColumn, hiddenForFullscreen && styles.hiddenForFullscreen]}>
+        {children}
+      </View>
     </WindowChromeRegion>
   );
 }
@@ -1603,12 +1632,17 @@ function WorkspaceScreenContent({
   const splitWorkspacePaneEmpty = useWorkspaceLayoutStore((state) => state.splitPaneEmpty);
   const moveWorkspaceTabToPane = useWorkspaceLayoutStore((state) => state.moveTabToPane);
   const closeWorkspacePane = useWorkspaceLayoutStore((state) => state.closePane);
+  const isExplorerFullscreen = useExplorerFullscreenStore((state) => state.isFullscreen);
+  const exitExplorerFullscreen = useExplorerFullscreenStore((state) => state.exitFullscreen);
   const handleToggleExplorerSidebar = useCallback(() => {
-    toggleExplorerSidebar({
-      isCompact: isMobile,
-      workspaceKey: persistenceKey,
+    toggleWorkspaceExplorerSafely({
+      desktopFocusModeEnabled,
+      isMobile,
+      persistenceKey,
+      toggleFocusMode,
+      exitExplorerFullscreen,
     });
-  }, [isMobile, persistenceKey]);
+  }, [desktopFocusModeEnabled, exitExplorerFullscreen, isMobile, persistenceKey, toggleFocusMode]);
   const paneFocusSuppressedRef = useRef(false);
   const resizeWorkspaceSplit = useWorkspaceLayoutStore((state) => state.resizeSplit);
   const reorderWorkspaceTabsInPane = useWorkspaceLayoutStore((state) => state.reorderTabsInPane);
@@ -3958,6 +3992,16 @@ function WorkspaceScreenContent({
   });
 
   // Compact sheets escape to the app overlay host, above both sidebars.
+  const explorerFullscreenVisible = computeExplorerFullscreenVisible(
+    isExplorerFullscreen,
+    isExplorerSidebarShowing,
+    desktopFocusModeEnabled,
+  );
+  const explorerDockFullscreen = computeExplorerFullscreenVisible(
+    explorerFullscreenVisible,
+    !isMobile,
+    false,
+  );
   const workspaceCenterColumn = isMobile ? (
     <View style={styles.centerColumn}>
       <FloatingHeaderLayout
@@ -3976,6 +4020,7 @@ function WorkspaceScreenContent({
     <DesktopCenterColumnChrome
       explorerOpen={isExplorerSidebarShowing}
       focusModeEnabled={desktopFocusModeEnabled}
+      hiddenForFullscreen={explorerFullscreenVisible}
     >
       {rendersDesktopSplitContent ? null : (
         <AdaptiveWorkspaceChrome compactHeader={centerColumnCompactHeader}>
@@ -4057,6 +4102,7 @@ function WorkspaceScreenContent({
         isWorkspaceActive={isRouteFocused}
         persistenceKey={persistenceKey}
         isOpen={isExplorerSidebarShowing && !desktopFocusModeEnabled}
+        fullscreen={explorerDockFullscreen}
       >
         {dock}
       </ExplorerFrame>
@@ -4092,6 +4138,7 @@ function WorkspaceScreenContent({
     buildDesktopPaneContentModel,
     explorerControls.dockAction,
     desktopFocusModeEnabled,
+    explorerDockFullscreen,
   ]);
 
   const { revealDirectory } = useFileExplorerActions({
@@ -4289,6 +4336,9 @@ const styles = StyleSheet.create((theme) => ({
   centerColumn: {
     flex: 1,
     minHeight: 0,
+  },
+  hiddenForFullscreen: {
+    display: "none",
   },
   headerTitleContainer: {
     flex: 1,

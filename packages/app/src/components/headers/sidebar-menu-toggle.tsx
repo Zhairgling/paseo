@@ -56,7 +56,12 @@ function SidebarMenuToggleButton({
   resolvedStyle: StyleProp<ViewStyle>;
 }) {
   const { t } = useTranslation();
-  const isOpen = usePanelStore((state) => selectIsAgentListOpen(state, { isCompact: isMobile }));
+  const leftSidebarPresentation = usePanelStore((state) => state.layout.leftSidebar);
+  const usesOverlayToggle =
+    isMobile || leftSidebarPresentation === "overlay" || leftSidebarPresentation === "suspended";
+  const isOpen = usePanelStore((state) =>
+    selectIsAgentListOpen(state, { isCompact: usesOverlayToggle }),
+  );
   const toggleAgentListForLayout = usePanelStore((state) => state.toggleAgentListForLayout);
   const toggleShortcutKeys = useMemo(
     () => (getShortcutOs() === "mac" ? ["mod", "B"] : ["mod", "."]),
@@ -64,8 +69,8 @@ function SidebarMenuToggleButton({
   );
 
   const handlePress = useCallback(() => {
-    toggleAgentListForLayout({ isCompact: isMobile });
-  }, [toggleAgentListForLayout, isMobile]);
+    toggleAgentListForLayout({ isCompact: usesOverlayToggle });
+  }, [toggleAgentListForLayout, usesOverlayToggle]);
 
   const accessibilityState = useMemo(() => ({ expanded: isOpen }), [isOpen]);
 

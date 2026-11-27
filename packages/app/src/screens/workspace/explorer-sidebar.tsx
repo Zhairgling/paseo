@@ -4,6 +4,8 @@ import { useWorkspaceTabDrag } from "@/components/workspace-tab-drag-context";
 import { StyleSheet } from "react-native-unistyles";
 import { RetainedPanel } from "@/components/retained-panel";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
+import { supportsDesktopPaneSplits } from "@/constants/layout";
+import { useExplorerFullscreenStore } from "@/panels/explorer-fullscreen-store";
 import { WorkspacePanelHost } from "@/screens/workspace/workspace-panel-host";
 import { deriveWorkspacePaneState } from "@/screens/workspace/workspace-pane-state";
 import {
@@ -79,18 +81,28 @@ export function ExplorerSidebarDock({
   headerAction,
 }: ExplorerSidebarDockProps) {
   const { activeDragTabId, tabDropPreview, externalDndContext } = useWorkspaceTabDrag();
+  const supportsSplits = supportsDesktopPaneSplits();
+  const isExplorerFullscreen = useExplorerFullscreenStore((state) => state.isFullscreen);
+  const toggleExplorerFullscreen = useExplorerFullscreenStore((state) => state.toggleFullscreen);
   const paneState = useMemo(() => deriveWorkspacePaneState({ pane, tabs: uiTabs }), [pane, uiTabs]);
   const tabs = useMemo(() => paneState.tabs.map((tab) => tab.descriptor), [paneState.tabs]);
   const activeTabId = paneState.activeTabId;
+  const visibleTabs = useMemo(
+    () =>
+      supportsSplits
+        ? tabs
+        : tabs.filter((tab) => tab.tabId === activeTabId || tab.target.kind !== "changes_tree"),
+    [activeTabId, supportsSplits, tabs],
+  );
   const tabItems = useMemo<WorkspaceDesktopTabRowItem[]>(
     () =>
-      tabs.map((tab) => ({
+      visibleTabs.map((tab) => ({
         tab,
         isActive: tab.tabId === activeTabId,
         isCloseHovered: hoveredCloseTabKey === tab.key,
         isClosingTab: closingTabIds.has(tab.tabId),
       })),
-    [activeTabId, closingTabIds, hoveredCloseTabKey, tabs],
+    [activeTabId, closingTabIds, hoveredCloseTabKey, visibleTabs],
   );
   const handleSelectTab = useCallback(
     (tabId: string) => onSelectTab(pane.id, tabId),
@@ -156,6 +168,10 @@ export function ExplorerSidebarDock({
                 onCloseTab={onCloseTab}
                 onCreateNewTab={onCreateNewTab}
                 onReorderTabs={handleReorderTabs}
+                hideNewTabButton={!supportsSplits}
+                showPaneMaximizeAction={!supportsSplits}
+                paneMaximized={isExplorerFullscreen}
+                onTogglePaneMaximized={toggleExplorerFullscreen}
               />
             </View>
             {headerAction ? <View style={styles.headerAction}>{headerAction}</View> : null}

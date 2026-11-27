@@ -27,6 +27,7 @@ export function useExplorerGeometry({
   width,
   containerWidth,
   overlay,
+  fullscreen = false,
   resizeEnabled,
   onResize,
 }: ExplorerGeometryInput): ExplorerGeometry {
@@ -108,7 +109,7 @@ export function useExplorerGeometry({
   // Reanimated retains the last animated value when its style is removed. Keep this
   // style attached across folding and explicitly size overlays to the workspace viewport.
   const animatedWidthStyle = useAnimatedStyle(() => {
-    if (overlay) return { width: containerWidth };
+    if (overlay || fullscreen) return containerWidth > 0 ? { width: containerWidth } : { flex: 1 };
     {
       return {
         width: resolveExplorerSidebarFrameWidth({
@@ -121,7 +122,7 @@ export function useExplorerGeometry({
         }),
       };
     }
-  }, [containerWidth, overlay, resizeEnabled, width]);
+  }, [containerWidth, fullscreen, overlay, resizeEnabled, width]);
   return {
     frameStyle: animatedWidthStyle,
     panelStyle: {
