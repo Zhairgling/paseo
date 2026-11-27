@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { Columns2, MoreHorizontal, Pin } from "lucide-react-native";
+import { Columns2, MoreHorizontal } from "lucide-react-native";
 import { memo, useCallback, useMemo, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
@@ -25,18 +25,6 @@ const EXPANDED_DEFAULT_VISIBLE_COUNT = 20;
 const EXPANDED_MAX_VISIBLE_COUNT = 50;
 
 type SessionDotKind = "permission" | "running" | "attention" | "idle";
-
-const ThemedPinMuted = withUnistyles(Pin, (theme: Theme) => ({
-  color: theme.colors.foregroundExtraMuted,
-}));
-
-const ThemedPinActive = withUnistyles(Pin, (theme: Theme) => ({
-  color: theme.colors.accent,
-}));
-
-const ThemedSplitMuted = withUnistyles(Columns2, (theme: Theme) => ({
-  color: theme.colors.foregroundExtraMuted,
-}));
 
 const ThemedSplitActive = withUnistyles(Columns2, (theme: Theme) => ({
   color: theme.colors.accent,
@@ -73,7 +61,21 @@ function dotStyleFor(kind: SessionDotKind) {
   if (kind === "permission") return styles.dotDanger;
   if (kind === "running") return styles.dotOk;
   if (kind === "attention") return styles.dotAccent;
-  return styles.dotWarn;
+  return styles.dotIdle;
+}
+
+function resolveSessionSubtitle(
+  lastPreview: string | null,
+  repo: string,
+  modelBadge: string,
+  kind: SessionDotKind,
+): string {
+  if (lastPreview) return lastPreview;
+  if (repo && repo !== "miBand8" && repo !== modelBadge) return repo;
+  if (kind === "permission") return "Permission requise";
+  if (kind === "running") return "En cours…";
+  if (kind === "attention") return "Nouvelle réponse";
+  return "";
 }
 
 export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsSection({
@@ -93,7 +95,6 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
   const secondarySplitAgentId = useSplitSessionStore(
     (state) => state.secondarySession?.agentId ?? null,
   );
-  const toggleSplitSession = useSplitSessionStore((state) => state.toggleSplitSession);
   const { agents } = useAggregatedAgents({ includeArchived: false });
   const collapsed = useSidebarCollapsedSectionsStore((state) => state.collapsedRecentSessions);
   const toggleCollapsed = useSidebarCollapsedSectionsStore(
@@ -104,7 +105,6 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
     (state) => state.togglePinnedCollapsed,
   );
   const pinnedKeys = usePinnedSessionsStore((state) => state.pinnedKeys);
-  const togglePinSession = usePinnedSessionsStore((state) => state.togglePinSession);
   const [expanded, setExpanded] = useState(false);
 
   const pinnedKeySet = useMemo(() => new Set(pinnedKeys), [pinnedKeys]);
@@ -159,25 +159,6 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
     [onSessionPress],
   );
 
-  const handleTogglePin = useCallback(
-    (agent: AggregatedAgent) => {
-      togglePinSession(agent.serverId, agent.id);
-    },
-    [togglePinSession],
-  );
-
-  const handleToggleSplit = useCallback(
-    (agent: AggregatedAgent) => {
-      if (!agent.workspaceId) return;
-      toggleSplitSession({
-        serverId: agent.serverId,
-        agentId: agent.id,
-        workspaceId: agent.workspaceId,
-      });
-    },
-    [toggleSplitSession],
-  );
-
   if (pinnedAgents.length === 0 && unpinnedAgents.length === 0) {
     return null;
   }
@@ -205,12 +186,8 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
                   key={`pinned:${agent.serverId}:${agent.id}`}
                   agent={agent}
                   isActive={activeAgentId === agent.id}
-                  isPinned
                   isSplitOpen={secondarySplitAgentId === agent.id}
-                  canSplit={canSplit && Boolean(agent.workspaceId)}
                   onPress={handleOpenAgent}
-                  onTogglePin={handleTogglePin}
-                  onToggleSplit={handleToggleSplit}
                   onOpenActions={sessionActions.openActions}
                 />
               ))}
@@ -242,12 +219,8 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
                 key={`${agent.serverId}:${agent.id}`}
                 agent={agent}
                 isActive={activeAgentId === agent.id}
-                isPinned={pinnedKeySet.has(buildPinnedSessionKey(agent.serverId, agent.id))}
                 isSplitOpen={secondarySplitAgentId === agent.id}
-                canSplit={canSplit && Boolean(agent.workspaceId)}
                 onPress={handleOpenAgent}
-                onTogglePin={handleTogglePin}
-                onToggleSplit={handleToggleSplit}
                 onOpenActions={sessionActions.openActions}
               />
             ))}
@@ -270,22 +243,14 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
 const RecentSessionRow = memo(function RecentSessionRow({
   agent,
   isActive,
-  isPinned,
   isSplitOpen,
-  canSplit,
   onPress,
-  onTogglePin,
-  onToggleSplit,
   onOpenActions,
 }: {
   agent: AggregatedAgent;
   isActive: boolean;
-  isPinned: boolean;
   isSplitOpen: boolean;
-  canSplit: boolean;
   onPress: (agent: AggregatedAgent) => void;
-  onTogglePin: (agent: AggregatedAgent) => void;
-  onToggleSplit: (agent: AggregatedAgent) => void;
   onOpenActions: (agent: AggregatedAgent) => void;
 }) {
   const modelId = useSessionStore((state) => {
@@ -305,14 +270,6 @@ const RecentSessionRow = memo(function RecentSessionRow({
     onPress(agent);
   }, [agent, onPress]);
 
-  const handlePinPress = useCallback(() => {
-    onTogglePin(agent);
-  }, [agent, onTogglePin]);
-
-  const handleSplitPress = useCallback(() => {
-    onToggleSplit(agent);
-  }, [agent, onToggleSplit]);
-
   const handleActionsPress = useCallback(() => {
     onOpenActions(agent);
   }, [agent, onOpenActions]);
@@ -321,7 +278,7 @@ const RecentSessionRow = memo(function RecentSessionRow({
   const title = agent.title?.trim() || `Session ${agent.id.slice(0, 7)}`;
   const modelBadge = formatSessionModelBadge(agent.provider, modelId);
   const repo = repoNameFromCwd(agent.cwd);
-  const subtitleText = lastPreview || (repo && repo !== modelBadge ? repo : "");
+  const subtitleText = resolveSessionSubtitle(lastPreview, repo, modelBadge, kind);
   const age = formatCompactAge(agent.lastActivityAt);
   const perms = agent.pendingPermissionCount ?? 0;
 
@@ -335,7 +292,7 @@ const RecentSessionRow = memo(function RecentSessionRow({
       >
         <View style={[styles.dot, dotStyleFor(kind)]} />
         <View style={styles.rowCenter}>
-          <Text style={[styles.rowTitle, isActive && styles.rowTitleActive]} numberOfLines={1}>
+          <Text style={[styles.rowTitle, isActive && styles.rowTitleActive]} numberOfLines={2}>
             {title}
           </Text>
           <View style={styles.metaLine}>
@@ -347,6 +304,7 @@ const RecentSessionRow = memo(function RecentSessionRow({
                 {modelBadge}
               </Text>
             ) : null}
+            <Text style={styles.rowAge}>{age}</Text>
             {subtitleText ? (
               <Text style={styles.rowPreview} numberOfLines={1}>
                 {subtitleText}
@@ -358,35 +316,14 @@ const RecentSessionRow = memo(function RecentSessionRow({
           <View style={styles.permPill}>
             <Text style={styles.permPillText}>{perms}</Text>
           </View>
-        ) : (
-          <Text style={styles.rowAge}>{age}</Text>
-        )}
-      </PressHighlight>
-      {canSplit ? (
-        <PressHighlight
-          onPress={handleSplitPress}
-          style={styles.actionButton}
-          accessibilityRole="button"
-          accessibilityLabel={isSplitOpen ? "Close split conversation" : "Open side by side"}
-          testID={`sidebar-split-session-${agent.id}`}
-        >
-          {isSplitOpen ? <ThemedSplitActive size={12} /> : <ThemedSplitMuted size={12} />}
-        </PressHighlight>
-      ) : null}
-      <PressHighlight
-        onPress={handlePinPress}
-        style={styles.actionButton}
-        accessibilityRole="button"
-        accessibilityLabel={isPinned ? "Unpin conversation" : "Pin conversation"}
-        testID={`sidebar-pin-session-${agent.id}`}
-      >
-        {isPinned ? <ThemedPinActive size={12} /> : <ThemedPinMuted size={12} />}
+        ) : null}
+        {isSplitOpen ? <ThemedSplitActive size={11} /> : null}
       </PressHighlight>
       <PressHighlight
         onPress={handleActionsPress}
         style={styles.actionButton}
         accessibilityRole="button"
-        accessibilityLabel="Actions de session (renommer, archiver)"
+        accessibilityLabel="Actions de session (épingler, split, renommer, archiver)"
         testID={`sidebar-actions-session-${agent.id}`}
       >
         <ThemedMoreMuted size={13} />
@@ -430,17 +367,16 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[2],
     paddingLeft: theme.spacing[2],
-    paddingRight: theme.spacing[1],
+    paddingRight: 2,
     paddingVertical: 6,
     borderRadius: theme.borderRadius.md,
   },
   actionButton: {
-    width: 24,
-    height: 28,
+    width: 22,
+    height: 30,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: theme.borderRadius.sm,
-    marginRight: 1,
   },
   dot: {
     width: 7,
@@ -457,8 +393,8 @@ const styles = StyleSheet.create((theme) => ({
   dotAccent: {
     backgroundColor: theme.colors.accent,
   },
-  dotWarn: {
-    backgroundColor: theme.colors.statusWarning,
+  dotIdle: {
+    backgroundColor: theme.colors.foregroundExtraMuted,
   },
   rowCenter: {
     flex: 1,
@@ -468,6 +404,7 @@ const styles = StyleSheet.create((theme) => ({
   rowTitle: {
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
+    lineHeight: 16,
     color: theme.colors.foreground,
   },
   rowTitleActive: {
@@ -496,7 +433,7 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundExtraMuted,
   },
   rowAge: {
-    fontSize: 10.5,
+    fontSize: 10,
     fontFamily: theme.fontFamily.mono,
     color: theme.colors.foregroundExtraMuted,
     flexShrink: 0,
