@@ -4,6 +4,7 @@ import { AppState, Platform } from "react-native";
 import { useActiveSessionAgentId } from "@/hooks/use-active-session-agent-id";
 import { homelabFetchJson, resolveHomelabDaemonTarget } from "@/homelab/api";
 import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
+import { buildPinnedSessionKey, usePinnedSessionsStore } from "@/stores/pinned-sessions-store";
 import { useSessionStore, type Agent, type SessionState } from "@/stores/session-store";
 import type { StreamItem } from "@/types/stream";
 import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
@@ -172,8 +173,22 @@ function scheduleAgentNotification(input: {
       sound: "default",
       data: input.data,
     },
-    trigger: null,
+    trigger: Platform.OS === "android" ? { channelId: ANDROID_CHANNEL_ID } : null,
   }).catch(() => {});
+}
+
+function shouldNotifyFinishedTurn(serverId: string, agent: Agent): boolean {
+  if (agent.attentionReason === "error") {
+    return true;
+  }
+  const key = buildPinnedSessionKey(serverId, agent.id);
+  if (usePinnedSessionsStore.getState().pinnedKeys.includes(key)) {
+    return true;
+  }
+  const isWorker = Boolean(
+    agent.parentAgentId || agent.labels?.["paseo.parent-agent-id"] || agent.background,
+  );
+  return !isWorker;
 }
 
 function notifyPermissionRequest(
@@ -192,6 +207,30 @@ function notifyPermissionRequest(
       workspaceId: meta.workspaceId,
       agentId: meta.agentId,
       requestId: perm.id,
+    },
+  });
+}
+
+function notifyFinishedTurn(
+  serverId: string,
+  session: SessionState,
+  agent: Agent,
+  label: string,
+  workspaceId: string,
+): void {
+  const isError = agent.attentionReason === "error";
+  const body = isError
+    ? truncateText(agent.lastError?.trim() || "L'agent s'est arrêté avec une erreur.")
+    : extractFinishedPreview(session, agent.id);
+  scheduleAgentNotification({
+    identifier: `done:${agent.id}:${agent.updatedAt.getTime()}`,
+    title: `AjuCode · ${label}`,
+    body,
+    data: {
+      kind: "agent",
+      serverId,
+      workspaceId,
+      agentId: agent.id,
     },
   });
 }
@@ -215,39 +254,25 @@ function inspectAgentTransitions(
 
   const label = agent.title?.trim() || agent.id.slice(0, 8);
   const workspaceId = agent.workspaceId ?? "";
+  const canNotify = ctx.seeded && !ctx.viewingSameForeground;
 
   for (const perm of agent.pendingPermissions ?? []) {
     const permKey = `${agentKey}:${perm.id}`;
     ctx.nextPerms.add(permKey);
-    if (!ctx.seeded || ctx.seenPerms.has(permKey) || ctx.viewingSameForeground) continue;
-    notifyPermissionRequest(perm, { serverId, workspaceId, agentId: agent.id, label });
+    if (canNotify && !ctx.seenPerms.has(permKey)) {
+      notifyPermissionRequest(perm, { serverId, workspaceId, agentId: agent.id, label });
+    }
   }
 
-  if (
-    !ctx.seeded ||
-    !ctx.wasRunning ||
-    isRunning ||
-    !agent.requiresAttention ||
-    ctx.viewingSameForeground
-  ) {
-    return;
+  const finishedNow =
+    canNotify &&
+    ctx.wasRunning &&
+    !isRunning &&
+    Boolean(agent.requiresAttention) &&
+    shouldNotifyFinishedTurn(serverId, agent);
+  if (finishedNow) {
+    notifyFinishedTurn(serverId, session, agent, label, workspaceId);
   }
-
-  const body =
-    agent.attentionReason === "error"
-      ? truncateText(agent.lastError?.trim() || "L'agent s'est arrêté avec une erreur.")
-      : extractFinishedPreview(session, agent.id);
-  scheduleAgentNotification({
-    identifier: `done:${agent.id}:${agent.updatedAt.getTime()}`,
-    title: `AjuCode · ${label}`,
-    body,
-    data: {
-      kind: "agent",
-      serverId,
-      workspaceId,
-      agentId: agent.id,
-    },
-  });
 }
 
 function collectTransitions(

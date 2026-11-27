@@ -69,12 +69,14 @@ function resolveSessionSubtitle(
   repo: string,
   modelBadge: string,
   kind: SessionDotKind,
+  isClosed: boolean,
 ): string {
   if (lastPreview) return lastPreview;
-  if (repo && repo !== "miBand8" && repo !== modelBadge) return repo;
+  if (repo && repo !== modelBadge) return repo;
   if (kind === "permission") return "Permission requise";
   if (kind === "running") return "En cours…";
   if (kind === "attention") return "Nouvelle réponse";
+  if (isClosed) return "En veille";
   return "";
 }
 
@@ -110,16 +112,19 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
   const pinnedKeySet = useMemo(() => new Set(pinnedKeys), [pinnedKeys]);
 
   const { pinnedAgents, unpinnedAgents } = useMemo(() => {
-    const active = agents.filter((agent) => agent.status !== "closed");
-    const list = active.length > 0 ? [...active] : [...agents];
-    list.sort((a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime());
+    const allSorted = [...agents].sort(
+      (a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime(),
+    );
+    const active = allSorted.filter((agent) => agent.status !== "closed");
+    const recentPool = active.length > 0 ? active : allSorted;
 
     if (!showPinnedConversations) {
-      return { pinnedAgents: [] as AggregatedAgent[], unpinnedAgents: list };
+      return { pinnedAgents: [] as AggregatedAgent[], unpinnedAgents: recentPool };
     }
 
+    // Keep pinned sessions visible even when they transition to `closed` so tapping them wakes them up.
     const byKey = new Map<string, AggregatedAgent>();
-    for (const agent of list) {
+    for (const agent of allSorted) {
       byKey.set(buildPinnedSessionKey(agent.serverId, agent.id), agent);
     }
 
@@ -131,7 +136,7 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
       }
     }
 
-    const unpinned = list.filter(
+    const unpinned = recentPool.filter(
       (agent) => !pinnedKeySet.has(buildPinnedSessionKey(agent.serverId, agent.id)),
     );
     return { pinnedAgents: pinned, unpinnedAgents: unpinned };
@@ -154,6 +159,7 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
         agentId: agent.id,
         workspaceId: agent.workspaceId,
         pin: true,
+        asTab: true,
       });
     },
     [onSessionPress],
@@ -278,7 +284,13 @@ const RecentSessionRow = memo(function RecentSessionRow({
   const title = agent.title?.trim() || `Session ${agent.id.slice(0, 7)}`;
   const modelBadge = formatSessionModelBadge(agent.provider, modelId);
   const repo = repoNameFromCwd(agent.cwd);
-  const subtitleText = resolveSessionSubtitle(lastPreview, repo, modelBadge, kind);
+  const subtitleText = resolveSessionSubtitle(
+    lastPreview,
+    repo,
+    modelBadge,
+    kind,
+    agent.status === "closed",
+  );
   const age = formatCompactAge(agent.lastActivityAt);
   const perms = agent.pendingPermissionCount ?? 0;
 
