@@ -156,6 +156,10 @@ function submittedPromptText(prompt: AgentPromptInput): string {
   if (typeof prompt === "string") {
     return prompt;
   }
+  if (!Array.isArray(prompt)) {
+    const text = (prompt as { text?: unknown } | null | undefined)?.text;
+    return typeof text === "string" ? text : "";
+  }
   return prompt
     .flatMap((block) => (block.type === "text" && !("mimeType" in block) ? [block.text] : []))
     .join("\n")
@@ -537,6 +541,8 @@ interface ManagedAgentBase {
   persistence: AgentPersistenceHandle | null;
   historyPrimed: boolean;
   lastUserMessageAt: Date | null;
+  /** Tracks whether the active/latest turn was triggered by inter-agent chatter rather than a human prompt. */
+  turnPromptKind?: "human" | "inter_agent";
   activeTurnId: string | null;
   activeTurnStartedAt: Date | null;
   lastUsage?: AgentUsage;
@@ -3696,6 +3702,8 @@ export class AgentManager {
               ? stagedSubmittedPromptEcho.item.messageId
               : undefined,
         });
+      } else {
+        this.observeSubmittedPromptItems(agent, prompt);
       }
       for (const stagedEvent of pendingRun.stagedEvents.splice(0)) {
         const isAcceptedTurnStart =
@@ -5806,6 +5814,7 @@ export class AgentManager {
       }
 
       this.recordAndDispatchTimelineItem(agent.id, item, event.provider, event.turnId);
+      this.observeTurnTriggerItem(agent, item);
       if (item.type === "user_message") {
         agent.lastUserMessageAt = new Date();
         this.emitState(agent);
@@ -6112,7 +6121,43 @@ export class AgentManager {
       return;
     this.touchUpdatedAt(agent);
     if (item.type === "user_message") agent.lastUserMessageAt = new Date();
+    this.observeTurnTriggerItem(agent, item);
     this.recordAndDispatchTimelineItem(agent.id, item, agent.provider, options?.turnId, options);
+  }
+
+  private observeSubmittedPromptItems(agent: ActiveManagedAgent, prompt: AgentPromptInput): void {
+    const items = projectAgentMessages({
+      type: "user_message",
+      text: submittedPromptText(prompt),
+    });
+    for (const item of items) {
+      this.observeTurnTriggerItem(agent, item);
+    }
+  }
+
+  private observeTurnTriggerItem(agent: ActiveManagedAgent, item: AgentTimelineItem): void {
+    if (item.type === "user_message") {
+      agent.turnPromptKind = "human";
+      return;
+    }
+    if (item.type !== "tool_call") {
+      return;
+    }
+    const isInterAgentMessage =
+      (item.name === "agent_message" && item.agentMessage?.event === "message") ||
+      item.name === "heartbeat";
+    if (isInterAgentMessage) {
+      if (agent.lifecycle !== "running" || agent.turnPromptKind !== "human") {
+        agent.turnPromptKind = "inter_agent";
+      }
+      return;
+    }
+    if (
+      item.name === "agent_message" &&
+      (agent.lifecycle !== "running" || agent.turnPromptKind !== "human")
+    ) {
+      agent.turnPromptKind = undefined;
+    }
   }
 
   private reconcileSubmittedPromptEcho(
@@ -6253,6 +6298,11 @@ export class AgentManager {
   private checkAndSetAttention(agent: ManagedAgent): void {
     const previousStatus = this.previousStatuses.get(agent.id);
     const currentStatus = agent.lifecycle;
+    const finished = previousStatus === "running" && currentStatus === "idle";
+    const settledFromInterAgent = finished && agent.turnPromptKind === "inter_agent";
+    if (currentStatus === "idle" || currentStatus === "error") {
+      agent.turnPromptKind = undefined;
+    }
 
     // Track the new status
     this.previousStatuses.set(agent.id, currentStatus);
@@ -6266,7 +6316,10 @@ export class AgentManager {
       return;
     }
 
-    const finished = previousStatus === "running" && currentStatus === "idle";
+    if (settledFromInterAgent) {
+      return;
+    }
+
     if (agent.attention.requiresAttention) {
       // The unread finish stays the same; the notifier knows whether the user was told about it.
       if (finished && agent.attention.attentionReason === "finished") {

@@ -7,8 +7,12 @@ import {
   formatFinishedAgentNotification,
   formatPermissionAgentNotification,
 } from "@/homelab/agent-notification-format";
+import {
+  buildAttentionDedupeKey,
+  getCombinedAgentStreamItems,
+  shouldDeliverLocalTurnNotification,
+} from "@/homelab/agent-notification-policy";
 import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
-import { buildPinnedSessionKey, usePinnedSessionsStore } from "@/stores/pinned-sessions-store";
 import { useSessionStore, type Agent, type SessionState } from "@/stores/session-store";
 import type { StreamItem } from "@/types/stream";
 import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
@@ -125,20 +129,6 @@ function scheduleAgentNotification(input: {
   }).catch(() => {});
 }
 
-function shouldNotifyFinishedTurn(serverId: string, agent: Agent): boolean {
-  if (agent.attentionReason === "error") {
-    return true;
-  }
-  const key = buildPinnedSessionKey(serverId, agent.id);
-  if (usePinnedSessionsStore.getState().pinnedKeys.includes(key)) {
-    return true;
-  }
-  const isWorker = Boolean(
-    agent.parentAgentId || agent.labels?.["paseo.parent-agent-id"] || agent.background,
-  );
-  return !isWorker;
-}
-
 function notifyPermissionRequest(
   session: SessionState,
   agent: Agent,
@@ -168,14 +158,13 @@ function notifyPermissionRequest(
 }
 
 function notifyFinishedTurn(
-  serverId: string,
   session: SessionState,
   agent: Agent,
   workspaceId: string,
+  serverId: string,
 ): void {
-  const rawAssistant =
-    findLatestAssistantText(session.agentStreamTail.get(agent.id)) ??
-    findLatestAssistantText(session.agentStreamHead.get(agent.id));
+  const items = getCombinedAgentStreamItems(session, agent.id);
+  const rawAssistant = findLatestAssistantText(items);
   const formatted = formatFinishedAgentNotification({
     agent,
     workspaces: session.workspaces,
@@ -204,15 +193,22 @@ function inspectAgentTransitions(
   ctx: {
     seeded: boolean;
     seenPerms: ReadonlySet<string>;
-    wasRunning: boolean;
+    seenAttentionKeys: ReadonlyMap<string, string>;
+    runningKeys: ReadonlySet<string>;
     viewingSameForeground: boolean;
     nextRunning: Set<string>;
     nextPerms: Set<string>;
+    nextAttentionKeys: Map<string, string>;
   },
 ): void {
   const agentKey = `${serverId}:${agent.id}`;
   const isRunning = agent.status === "running" || agent.turn?.phase === "open";
   if (isRunning) ctx.nextRunning.add(agentKey);
+
+  const dedupeKey = agent.requiresAttention ? buildAttentionDedupeKey(agent) : null;
+  if (dedupeKey) {
+    ctx.nextAttentionKeys.set(agentKey, dedupeKey);
+  }
 
   const workspaceId = agent.workspaceId ?? "";
   const canNotify = ctx.seeded && !ctx.viewingSameForeground;
@@ -225,14 +221,18 @@ function inspectAgentTransitions(
     }
   }
 
-  const finishedNow =
-    canNotify &&
-    ctx.wasRunning &&
-    !isRunning &&
-    Boolean(agent.requiresAttention) &&
-    shouldNotifyFinishedTurn(serverId, agent);
-  if (finishedNow) {
-    notifyFinishedTurn(serverId, session, agent, workspaceId);
+  const wasRunning = ctx.runningKeys.has(agentKey);
+  if (canNotify && wasRunning && !isRunning && agent.requiresAttention) {
+    const timelineItems = getCombinedAgentStreamItems(session, agent.id);
+    if (
+      shouldDeliverLocalTurnNotification({
+        agent,
+        timelineItems,
+        lastSeenAttentionKey: ctx.seenAttentionKeys.get(agentKey),
+      })
+    ) {
+      notifyFinishedTurn(session, agent, workspaceId, serverId);
+    }
   }
 }
 
@@ -241,29 +241,36 @@ function collectTransitions(
   refs: {
     seeded: boolean;
     seenPerms: ReadonlySet<string>;
+    seenAttentionKeys: ReadonlyMap<string, string>;
     runningKeys: ReadonlySet<string>;
     isAppActive: boolean;
     activeAgentId: string | null;
   },
-): { nextRunning: Set<string>; nextPerms: Set<string> } {
+): {
+  nextRunning: Set<string>;
+  nextPerms: Set<string>;
+  nextAttentionKeys: Map<string, string>;
+} {
   const nextRunning = new Set<string>();
   const nextPerms = new Set<string>();
+  const nextAttentionKeys = new Map<string, string>();
 
   for (const [serverId, session] of Object.entries(sessions)) {
     if (!session) continue;
     for (const agent of session.agents.values()) {
-      const agentKey = `${serverId}:${agent.id}`;
       inspectAgentTransitions(serverId, session, agent, {
         seeded: refs.seeded,
         seenPerms: refs.seenPerms,
-        wasRunning: refs.runningKeys.has(agentKey),
+        seenAttentionKeys: refs.seenAttentionKeys,
+        runningKeys: refs.runningKeys,
         viewingSameForeground: refs.isAppActive && refs.activeAgentId === agent.id,
         nextRunning,
         nextPerms,
+        nextAttentionKeys,
       });
     }
   }
-  return { nextRunning, nextPerms };
+  return { nextRunning, nextPerms, nextAttentionKeys };
 }
 
 /**
@@ -271,6 +278,7 @@ function collectTransitions(
  * - displays workspace + state in subtitle and avoids repeating the app name
  * - provides Approve/Deny buttons for tool permissions and inline Reply on finished turns
  * - previews the essential takeaway of the assistant reply or concrete error
+ * - filters out delegated/background workers, repeated unread wake-ups, and inter-agent chatter
  */
 export function useLocalAgentNotifications(): void {
   const activeAgentId = useActiveSessionAgentId();
@@ -279,6 +287,7 @@ export function useLocalAgentNotifications(): void {
   activeAgentIdRef.current = activeAgentId;
   const appStateRef = useRef(AppState.currentState);
   const seenPermIdsRef = useRef<Set<string>>(new Set());
+  const seenAttentionKeysRef = useRef<Map<string, string>>(new Map());
   const runningKeysRef = useRef<Set<string>>(new Set());
   const seededRef = useRef(false);
 
@@ -319,15 +328,17 @@ export function useLocalAgentNotifications(): void {
     });
 
     const unsubStore = useSessionStore.subscribe((state) => {
-      const { nextRunning, nextPerms } = collectTransitions(state.sessions, {
+      const { nextRunning, nextPerms, nextAttentionKeys } = collectTransitions(state.sessions, {
         seeded: seededRef.current,
         seenPerms: seenPermIdsRef.current,
+        seenAttentionKeys: seenAttentionKeysRef.current,
         runningKeys: runningKeysRef.current,
         isAppActive: appStateRef.current === "active",
         activeAgentId: activeAgentIdRef.current,
       });
       runningKeysRef.current = nextRunning;
       seenPermIdsRef.current = nextPerms;
+      seenAttentionKeysRef.current = nextAttentionKeys;
       if (!seededRef.current && Object.keys(state.sessions).length > 0) {
         seededRef.current = true;
       }

@@ -16626,3 +16626,37 @@ test("a wrapped refresh passes a Windows script provider command to the wrapper 
   expect(manager.getAgent(created.id)?.lifecycle).not.toBe("error");
   await manager.closeAgent(created.id);
 });
+
+test("onAgentAttention does not fire for finished inter-agent messages, and resumes for human prompts", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-inter-agent-attn-"));
+  onTestFinished(() => rmSync(workdir, { recursive: true, force: true }));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const attentionCalls: string[] = [];
+  const manager = new AgentManager({
+    clients: { codex: new TestAgentClient() },
+    registry: storage,
+    logger,
+    onAgentAttention: ({ agentId, reason }) => {
+      attentionCalls.push(`${agentId}:${reason}`);
+    },
+  });
+
+  const agent = await manager.createAgent(
+    { provider: "codex", cwd: workdir, title: "Peer Agent" },
+    undefined,
+    { workspaceId: undefined },
+  );
+
+  // Simulate an inter-agent prompt turn (send_agent_prompt -> <paseo-system kind="agent-message">)
+  const interAgentEnvelope = `<paseo-system version="1" kind="agent-message" source-agent-id="peer-sender" message-id="m-1">\nCheck API\n</paseo-system>`;
+  await manager.runAgent(agent.id, interAgentEnvelope);
+  await manager.flush();
+  expect(attentionCalls).toEqual([]);
+
+  // Next human prompt resumes normal finished attention notification
+  await manager.runAgent(agent.id, "Human follow-up");
+  await manager.flush();
+  expect(attentionCalls).toEqual([`${agent.id}:finished`]);
+
+  await manager.closeAgent(agent.id);
+});

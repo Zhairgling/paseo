@@ -11,6 +11,11 @@ import {
   type NotificationPreferences,
 } from "@getpaseo/protocol/notification-preferences";
 import type { QueryClient } from "@tanstack/react-query";
+import {
+  getCombinedAgentStreamItems,
+  isDelegatedOrBackgroundAgent,
+  isLatestTurnFromInterAgentExchange,
+} from "@/homelab/agent-notification-policy";
 import { APP_SETTINGS_QUERY_KEY, type AppSettings } from "@/hooks/use-settings/storage";
 import type { SessionState } from "@/stores/session-store";
 import type { StreamItem } from "@/types/stream";
@@ -172,6 +177,16 @@ export function deliverAgentAttentionOsNotification(input: {
     return false;
   }
 
+  const agent = input.session?.agents?.get(input.params.agentId);
+  if (agent && isDelegatedOrBackgroundAgent(agent) && input.params.reason !== "permission") {
+    return false;
+  }
+
+  const timelineItems = getCombinedAgentStreamItems(input.session, input.params.agentId);
+  if (input.params.reason === "finished" && isLatestTurnFromInterAgentExchange(timelineItems)) {
+    return false;
+  }
+
   const timestampMs = new Date(input.params.timestamp).getTime();
   const lastNotified = input.attentionNotified.get(input.params.agentId);
   if (lastNotified && lastNotified >= timestampMs) {
@@ -179,10 +194,7 @@ export function deliverAgentAttentionOsNotification(input: {
   }
   input.attentionNotified.set(input.params.agentId, timestampMs);
 
-  const head = input.session?.agentStreamHead.get(input.params.agentId) ?? [];
-  const tail = input.session?.agentStreamTail.get(input.params.agentId) ?? [];
-  const assistantMessage =
-    findLatestAssistantMessageText(head) ?? findLatestAssistantMessageText(tail);
+  const assistantMessage = findLatestAssistantMessageText(timelineItems);
   const permissionRequest = getLatestPermissionRequest(input.session, input.params.agentId);
   const ctx = resolveSessionNotificationContext(input.session, input.params.agentId);
 

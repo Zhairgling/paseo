@@ -5,6 +5,7 @@ import {
 } from "@getpaseo/protocol/notification-preferences";
 import { describe, expect, it } from "vitest";
 import { APP_SETTINGS_QUERY_KEY, DEFAULT_CLIENT_SETTINGS } from "@/hooks/use-settings/storage";
+import type { SessionState } from "@/stores/session-store";
 import {
   deliverAgentAttentionOsNotification,
   deliverPluginOsNotification,
@@ -372,5 +373,112 @@ describe("session OS notification filtering", () => {
         },
       },
     ]);
+  });
+
+  it("suppresses OS notifications for delegated workers and inter-agent finished turns", () => {
+    const recorder = createNotificationRecorder();
+    const attentionNotified = new Map<string, number>();
+    const preferences: NotificationPreferences = {
+      ...DEFAULT_NOTIFICATION_PREFERENCES,
+      events: {
+        ...DEFAULT_NOTIFICATION_PREFERENCES.events,
+        agentFinished: true,
+        agentError: true,
+      },
+    };
+    const fakeSession = {
+      agents: new Map([
+        [
+          "child-1",
+          {
+            id: "child-1",
+            parentAgentId: "root-1",
+            labels: { "paseo.parent-agent-id": "root-1" },
+            background: false,
+            workspaceId: "ws-1",
+            cwd: "/repo",
+            title: "Child",
+          },
+        ],
+        [
+          "peer-1",
+          {
+            id: "peer-1",
+            parentAgentId: null,
+            labels: {},
+            background: false,
+            workspaceId: "ws-1",
+            cwd: "/repo",
+            title: "Peer",
+          },
+        ],
+      ]),
+      agentStreamHead: new Map(),
+      agentStreamTail: new Map([
+        [
+          "peer-1",
+          [
+            {
+              kind: "tool_call",
+              id: "call-msg",
+              timestamp: new Date(),
+              payload: {
+                source: "agent",
+                data: {
+                  provider: "claude",
+                  callId: "paseo-agent-message:1",
+                  name: "agent_message",
+                  status: "completed",
+                  error: null,
+                  detail: { type: "plain_text", text: "Hello peer", icon: "bot" },
+                  agentMessage: {
+                    event: "message",
+                    sender: { id: "root-1" },
+                    text: "Hello peer",
+                  },
+                },
+              },
+            },
+          ],
+        ],
+      ]),
+      workspaces: new Map(),
+      pendingPermissions: new Map(),
+      focusedAgentId: null,
+    } as unknown as SessionState;
+
+    expect(
+      deliverAgentAttentionOsNotification({
+        serverId: "srv-1",
+        params: {
+          agentId: "child-1",
+          reason: "error",
+          timestamp: new Date(1_700_000_010_000).toISOString(),
+        },
+        isActivelyVisible: false,
+        session: fakeSession,
+        attentionNotified,
+        preferences,
+        sendNotification: recorder.sendNotification,
+      }),
+    ).toBe(false);
+
+    expect(
+      deliverAgentAttentionOsNotification({
+        serverId: "srv-1",
+        params: {
+          agentId: "peer-1",
+          reason: "finished",
+          timestamp: new Date(1_700_000_020_000).toISOString(),
+        },
+        isActivelyVisible: false,
+        session: fakeSession,
+        attentionNotified,
+        preferences,
+        sendNotification: recorder.sendNotification,
+      }),
+    ).toBe(false);
+
+    expect(recorder.sent).toEqual([]);
   });
 });
