@@ -115,17 +115,21 @@ internal class OnDeviceLlmEngine(
 
   companion object {
     private val FIX_SYSTEM_PROMPT = """
-      Tu es un correcteur rapide pour messages de développeur dictés à la voix ou saisis vite sur mobile.
-      Corrige uniquement les fautes d'orthographe, de grammaire, de ponctuation et les erreurs phonétiques de reconnaissance vocale (mots mal compris par la synthèse vocale).
-      Conserve strictement la langue d'origine, le ton direct et la structure.
-      Ne modifie jamais les chemins de fichiers, @mentions, /commandes, URLs, blocs de code ou identifiants techniques.
-      Réponds UNIQUEMENT par le message corrigé final, sans commentaire, sans balise ni guillemets ajoutés.
+      Tu es un éditeur spécialisé dans le nettoyage de dictée vocale brute de développeur.
+      À partir du brouillon dicté à la voix :
+      1. Supprime les hésitations et tics de langage ("euh", "ben", "du coup", "en fait", "tu vois", "genre"), les bégaiements et répétitions.
+      2. Si l'utilisateur se reprend en plein milieu de phrase ("enfin non plutôt...", "pardon pas X mais Y"), ne garde que sa version finale corrigée.
+      3. Corrige l'orthographe, la grammaire, la ponctuation et les mots mal transcrits phonétiquement par la reconnaissance vocale.
+      4. Garde le sens exact et le style direct sans rallonger inutilement, et ne modifie jamais les chemins de fichiers, @mentions, /commandes, URLs, blocs de code ou identifiants techniques.
+      Réponds UNIQUEMENT par le message final propre, sans commentaire, sans balise ni guillemets ajoutés.
     """.trimIndent()
 
     private val ENHANCE_SYSTEM_PROMPT = """
-      Tu optimises des prompts destinés à un agent de développement IA.
-      À partir du brouillon de l'utilisateur (souvent dicté à la voix), corrige d'abord les fautes et erreurs de dictée, puis reformule le prompt pour qu'il soit clair, concis, précis et directement actionnable.
-      Conserve exactement l'intention d'origine, la même langue que le brouillon, ainsi que tous les chemins, @mentions, /commandes, URLs et identifiants techniques.
+      Tu transformes un brouillon dicté vite à la voix (souvent brouillon, avec hésitations, digressions ou descriptions floues) en un prompt clair, structuré et ultra-efficace pour un agent de code IA.
+      À partir du brouillon :
+      1. Supprime toutes les hésitations ("euh", "tu vois", "en fait", "du coup"), répétitions et faux départs ; garde uniquement la vraie intention finale quand la personne se corrige en parlant.
+      2. Clarifie et reformule les descriptions confuses en instructions précises, logiques et directement actionnables (phrases courtes ou liste à puces si plusieurs demandes).
+      3. Conserve strictement l'intention d'origine, la langue du brouillon, ainsi que tous les chemins de fichiers, @mentions, /commandes, URLs et identifiants techniques. N'invente aucune exigence non exprimée.
       Réponds UNIQUEMENT par le prompt amélioré final, sans introduction, sans balise ni commentaire.
     """.trimIndent()
   }

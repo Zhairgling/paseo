@@ -68,7 +68,12 @@ const ENGINE_OPTIONS: ReadonlyArray<{ id: TtsEnginePreference; label: string }> 
   { id: "system", label: "Système" },
 ];
 
-const SPEED_OPTIONS = [0.85, 1.0, 1.15, 1.3] as const;
+const SPEED_OPTIONS = [0.95, 1.0, 1.15, 1.3, 1.45] as const;
+
+const REPROMPT_MODE_OPTIONS: ReadonlyArray<{ id: "enhance" | "fix"; label: string }> = [
+  { id: "enhance", label: "Améliorer le prompt (recommandé)" },
+  { id: "fix", label: "Nettoyer dictée seule" },
+];
 
 function formatMb(bytes: number): string {
   return `${Math.round(bytes / (1024 * 1024))} Mo`;
@@ -537,7 +542,7 @@ export function OnDeviceVoiceSection() {
         <SettingsCard>
           <SettingsRow
             label="Activer le bouton Reprompt (✨)"
-            hint="Appui court : corriger fautes & dictée · Appui long : améliorer & structurer le prompt"
+            hint="Supprime hésitations/bégaiements de dictée vocale · Appui long = mode alternatif"
           >
             <Switch
               value={llmState.repromptEnabled}
@@ -545,6 +550,21 @@ export function OnDeviceVoiceSection() {
               accessibilityLabel="Activer le reprompt local sur l'appareil"
             />
           </SettingsRow>
+          <View style={styles.cardDivider} />
+          <View style={styles.sectionBlock}>
+            <Text style={settingsStyles.rowTitle}>Action au tap court sur ✨</Text>
+            <View style={styles.pillsRow}>
+              {REPROMPT_MODE_OPTIONS.map((opt) => (
+                <OptionPill
+                  key={opt.id}
+                  value={opt.id}
+                  label={opt.label}
+                  selected={llmState.defaultMode === opt.id}
+                  onSelect={llmState.setDefaultMode}
+                />
+              ))}
+            </View>
+          </View>
           <View style={styles.cardDivider} />
           <View style={styles.sectionBlock}>
             <Text style={settingsStyles.rowTitle}>Modèle local (Qwen3 LiteRT-LM)</Text>

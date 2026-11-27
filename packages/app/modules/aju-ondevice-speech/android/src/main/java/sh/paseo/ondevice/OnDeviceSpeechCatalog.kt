@@ -140,7 +140,7 @@ internal object OnDeviceSpeechCatalog {
     return s
   }
 
-  fun splitIntoSpeechChunks(raw: String, maxChars: Int = 210): List<String> {
+  fun splitIntoSpeechChunks(raw: String, maxChars: Int = 200, firstChunkMaxChars: Int = 85): List<String> {
     val clean = raw
       .replace("\r\n", "\n")
       .replace(Regex("[\\u200B-\\u200D\\uFEFF]"), "")
@@ -162,7 +162,9 @@ internal object OnDeviceSpeechCatalog {
     val chunks = ArrayList<String>()
     val current = StringBuilder()
     for (sentence in rawSentences) {
-      if (sentence.length > maxChars) {
+      // Keep the very first chunk short so TTS begins speaking immediately without buffering a paragraph.
+      val limit = if (chunks.isEmpty()) firstChunkMaxChars else maxChars
+      if (sentence.length > limit) {
         if (current.isNotEmpty()) {
           chunks.add(current.toString().trim())
           current.setLength(0)
@@ -171,7 +173,8 @@ internal object OnDeviceSpeechCatalog {
         val subParts = sentence.split(Regex("(?<=,)\\s+"))
         val subBuf = StringBuilder()
         for (sp in subParts) {
-          if (subBuf.isNotEmpty() && subBuf.length + 1 + sp.length > maxChars) {
+          val subLimit = if (chunks.isEmpty()) firstChunkMaxChars else maxChars
+          if (subBuf.isNotEmpty() && subBuf.length + 1 + sp.length > subLimit) {
             chunks.add(subBuf.toString().trim())
             subBuf.setLength(0)
           }
@@ -179,7 +182,7 @@ internal object OnDeviceSpeechCatalog {
           subBuf.append(sp)
         }
         if (subBuf.isNotEmpty()) chunks.add(subBuf.toString().trim())
-      } else if (current.isNotEmpty() && current.length + 1 + sentence.length > maxChars) {
+      } else if (current.isNotEmpty() && current.length + 1 + sentence.length > limit) {
         chunks.add(current.toString().trim())
         current.setLength(0)
         current.append(sentence)

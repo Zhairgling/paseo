@@ -507,9 +507,9 @@ internal class OnDeviceSpeechEngine(
               speed = clampedSpeed,
               referenceAudio = pocketWave.samples,
               referenceSampleRate = pocketWave.sampleRate,
-              numSteps = 5,
+              numSteps = 4,
               extra = mapOf(
-                "temperature" to "0.5",
+                "temperature" to "0.45",
                 "chunk_size" to "15",
               ),
             )
@@ -517,7 +517,7 @@ internal class OnDeviceSpeechEngine(
             GenerationConfig(
               sid = superSid,
               speed = clampedSpeed,
-              numSteps = 6,
+              numSteps = 4,
               extra = mapOf(
                 "lang" to effectiveLang,
               ),
@@ -636,7 +636,8 @@ internal class OnDeviceSpeechEngine(
       AudioFormat.CHANNEL_OUT_MONO,
       AudioFormat.ENCODING_PCM_16BIT,
     )
-    val bufferSize = maxOf(minBuf * 2, sampleRate / 2)
+    // 4-second ring buffer lets AudioTrack play chunk N asynchronously while chunk N+1 is synthesized.
+    val bufferSize = maxOf(minBuf * 4, sampleRate * 4 * 2)
     return AudioTrack.Builder()
       .setAudioAttributes(
         AudioAttributes.Builder()

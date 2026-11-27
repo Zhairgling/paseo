@@ -59,7 +59,7 @@ export const useOnDeviceSpeechStore = create<OnDeviceSpeechState>()(
       pocketVoice: "iris",
       supertonicVoice: "F1",
       supertonicLang: "fr",
-      ttsSpeed: 1.0,
+      ttsSpeed: 1.15,
 
       initialized: false,
       supported: Platform.OS === "android",

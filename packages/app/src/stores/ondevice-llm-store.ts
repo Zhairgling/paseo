@@ -23,6 +23,7 @@ export interface RepromptResult {
 export interface OnDeviceLlmState {
   selectedModel: OnDeviceLlmModelId;
   repromptEnabled: boolean;
+  defaultMode: RepromptMode;
 
   // Runtime native state (non-persisted)
   initialized: boolean;
@@ -37,6 +38,7 @@ export interface OnDeviceLlmState {
 
   setSelectedModel: (modelId: OnDeviceLlmModelId) => void;
   setRepromptEnabled: (enabled: boolean) => void;
+  setDefaultMode: (mode: RepromptMode) => void;
   clearRepromptError: () => void;
 
   ensureInitialized: () => void;
@@ -55,6 +57,7 @@ export const useOnDeviceLlmStore = create<OnDeviceLlmState>()(
     (set, get) => ({
       selectedModel: "qwen3-0.6b-int4",
       repromptEnabled: true,
+      defaultMode: "enhance",
 
       initialized: false,
       supported: Platform.OS === "android",
@@ -68,6 +71,7 @@ export const useOnDeviceLlmStore = create<OnDeviceLlmState>()(
 
       setSelectedModel: (selectedModel) => set({ selectedModel, lastRepromptError: null }),
       setRepromptEnabled: (repromptEnabled) => set({ repromptEnabled }),
+      setDefaultMode: (defaultMode) => set({ defaultMode }),
       clearRepromptError: () => set({ lastRepromptError: null }),
 
       refreshStatuses: () => {
@@ -221,6 +225,7 @@ export const useOnDeviceLlmStore = create<OnDeviceLlmState>()(
       partialize: (state) => ({
         selectedModel: state.selectedModel,
         repromptEnabled: state.repromptEnabled,
+        defaultMode: state.defaultMode,
       }),
     },
   ),

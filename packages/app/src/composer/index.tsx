@@ -2309,7 +2309,7 @@ function ComposerContentImpl({
   const lastRepromptError = useOnDeviceLlmStore((s) => s.lastRepromptError);
 
   const handleReprompt = useCallback(
-    async (repromptMode: RepromptMode) => {
+    async (repromptMode: RepromptMode, sourceOverride?: string) => {
       if (isComposerLocked) return;
       const store = useOnDeviceLlmStore.getState();
       if (store.progressByModel[store.selectedModel]) {
@@ -2318,7 +2318,7 @@ function ComposerContentImpl({
       }
       if (store.isReprompting) return;
 
-      const snapshot = textSource.getSnapshot();
+      const snapshot = sourceOverride ?? textSource.getSnapshot();
       if (!canRepromptText(snapshot)) return;
 
       const result = await store.repromptDraft(snapshot, repromptMode);
@@ -2330,6 +2330,12 @@ function ComposerContentImpl({
     },
     [isComposerLocked, replaceUserInput, textSource],
   );
+
+  const handleSwitchRepromptMode = useCallback(() => {
+    if (!repromptUndo) return;
+    const nextMode: RepromptMode = repromptUndo.mode === "enhance" ? "fix" : "enhance";
+    void handleReprompt(nextMode, repromptUndo.originalText);
+  }, [handleReprompt, repromptUndo]);
 
   const handleUndoReprompt = useCallback(() => {
     if (!repromptUndo) return;
@@ -2753,6 +2759,7 @@ function ComposerContentImpl({
                 textSource={textSource}
                 undo={repromptUndo}
                 error={lastRepromptError}
+                onSwitchMode={handleSwitchRepromptMode}
                 onUndo={handleUndoReprompt}
                 onDismiss={handleDismissRepromptUndo}
               />
@@ -3130,16 +3137,17 @@ const ComposerRepromptButton = memo(function ComposerRepromptButton({
   );
   const repromptEnabled = useOnDeviceLlmStore((s) => s.repromptEnabled);
   const supported = useOnDeviceLlmStore((s) => s.supported);
+  const defaultMode = useOnDeviceLlmStore((s) => s.defaultMode);
   const progress = useOnDeviceLlmStore((s) => s.progressByModel[s.selectedModel]);
   const isReprompting = useOnDeviceLlmStore((s) => s.isReprompting);
 
   const handlePress = useCallback(() => {
-    void onReprompt("fix");
-  }, [onReprompt]);
+    void onReprompt(defaultMode);
+  }, [defaultMode, onReprompt]);
 
   const handleLongPress = useCallback(() => {
-    void onReprompt("enhance");
-  }, [onReprompt]);
+    void onReprompt(defaultMode === "enhance" ? "fix" : "enhance");
+  }, [defaultMode, onReprompt]);
 
   const isDownloading = Boolean(progress);
   const buttonStyle = useCallback(
@@ -3185,7 +3193,7 @@ const ComposerRepromptButton = memo(function ComposerRepromptButton({
       delayLongPress={420}
       disabled={disabled || isReprompting}
       accessibilityRole="button"
-      accessibilityLabel="Reprompt local (appui court : corriger, appui long : améliorer)"
+      accessibilityLabel="Reprompt local (appui court : améliorer le prompt, appui long : nettoyer la dictée)"
       testID="composer-reprompt-button"
       style={buttonStyle}
     >
@@ -3198,12 +3206,14 @@ const ComposerRepromptBanner = memo(function ComposerRepromptBanner({
   textSource,
   undo,
   error,
+  onSwitchMode,
   onUndo,
   onDismiss,
 }: {
   textSource: ComposerTextSource;
   undo: { originalText: string; mode: RepromptMode } | null;
   error: string | null;
+  onSwitchMode: () => void;
   onUndo: () => void;
   onDismiss: () => void;
 }) {
@@ -3212,6 +3222,7 @@ const ComposerRepromptBanner = memo(function ComposerRepromptBanner({
     textSource.getSnapshot,
     textSource.getSnapshot,
   );
+  const isReprompting = useOnDeviceLlmStore((s) => s.isReprompting);
 
   useEffect(() => {
     if (undo && !error && draftText.trim().length === 0) {
@@ -3227,14 +3238,25 @@ const ComposerRepromptBanner = memo(function ComposerRepromptBanner({
     return null;
   }
 
+  const altLabel = undo.mode === "enhance" ? "Nettoyer seul" : "Améliorer";
+
   return (
     <View style={styles.repromptBanner} testID="composer-reprompt-undo-bar">
       <View style={styles.repromptBannerLabelWrap}>
         <ThemedSparkles size={13} uniProps={iconAccentMapping} />
         <Text numberOfLines={1} style={styles.repromptBannerLabel}>
-          {`${REPROMPT_MODE_LABELS[undo.mode]} appliqué (on-device)`}
+          {`${REPROMPT_MODE_LABELS[undo.mode]} (local)`}
         </Text>
       </View>
+      <Pressable
+        onPress={onSwitchMode}
+        disabled={isReprompting}
+        accessibilityRole="button"
+        accessibilityLabel={`Passer en mode ${altLabel}`}
+        style={styles.repromptUndoPill}
+      >
+        <Text style={styles.repromptUndoText}>{altLabel}</Text>
+      </Pressable>
       <Pressable
         onPress={onUndo}
         accessibilityRole="button"

@@ -28,7 +28,7 @@ export const ONDEVICE_LLM_CATALOG: readonly OnDeviceLlmCatalogItem[] = [
 ] as const;
 
 export const REPROMPT_MODE_LABELS: Record<RepromptMode, string> = {
-  fix: "Correction & dictée",
+  fix: "Dictée nettoyée",
   enhance: "Prompt amélioré",
 };
 
