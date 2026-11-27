@@ -14,6 +14,8 @@ import { AgentDirectory } from "../directory.js";
 import { stat } from "node:fs/promises";
 import { z } from "zod";
 import { ensureValidJson } from "../../json-utils.js";
+import { mutatePinnedSession } from "../../pinned-sessions-store.js";
+import { getOrCreateServerId } from "../../server-id.js";
 import type { Logger } from "pino";
 
 import type { AgentMode, AgentProvider, AgentSessionConfig } from "../agent-sdk-types.js";
@@ -2354,6 +2356,55 @@ function createToolCatalog(
       return {
         content: [],
         structuredContent: ensureValidJson({ success: true }),
+      };
+    },
+  );
+
+  registerTool(
+    "pin_session",
+    {
+      title: "Pin or unpin session",
+      description:
+        "Pin or unpin an agent session in the shared sidebar list across Magic V6, Honor Pad 10, and Web UI.",
+      inputSchema: {
+        agentId: z.string().trim().min(1),
+        pinned: z
+          .boolean()
+          .optional()
+          .describe("Set true to pin (default) or false to unpin the session."),
+        serverId: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe("Host serverId owning the agent. Defaults to this daemon."),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        key: z.string(),
+        pinned: z.boolean(),
+        pinnedKeys: z.array(z.string()),
+      },
+    },
+    async ({ agentId, pinned, serverId }) => {
+      if (!options.paseoHome) {
+        throw new Error("paseoHome is required to pin sessions");
+      }
+      const resolvedServerId =
+        serverId ?? getOrCreateServerId(options.paseoHome, { logger: childLogger });
+      const result = await mutatePinnedSession(options.paseoHome, {
+        serverId: resolvedServerId,
+        agentId,
+        action: pinned === false ? "unpin" : "pin",
+      });
+      return {
+        content: [],
+        structuredContent: ensureValidJson({
+          success: true,
+          key: result.key,
+          pinned: result.pinned,
+          pinnedKeys: result.pinnedKeys,
+        }),
       };
     },
   );

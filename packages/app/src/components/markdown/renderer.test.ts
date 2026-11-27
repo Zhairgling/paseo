@@ -1158,3 +1158,30 @@ describe("external Markdown", () => {
     );
   });
 });
+
+describe("session references in markdown", () => {
+  it("recognizes known session IDs in prose and inline code, plus paseo deep links", () => {
+    const { linkRecognition } = prepareMarkdownSource(
+      "Voir `1a8385c`, deadbee, session 06fd2360 et paseo://h/srv_1/agent/1a8385c.",
+      undefined,
+      { knownSessionTokens: ["1a8385c", "06fd2360"] },
+    );
+    expect("session 06fd2360 et deadbee".match(linkRecognition.text)).toEqual(["06fd2360"]);
+    expect("paseo://h/srv_1/agent/1a8385c.".match(linkRecognition.text)).toEqual([
+      "paseo://h/srv_1/agent/1a8385c",
+    ]);
+    expect("paseo:///h/srv_1/agent/1a8385c.".match(linkRecognition.text)).toEqual([
+      "paseo:///h/srv_1/agent/1a8385c",
+    ]);
+    expect(linkRecognition.inlineCode.test("1a8385c")).toBe(true);
+    expect(linkRecognition.inlineCode.test("deadbee")).toBe(false);
+    expect(linkRecognition.inlineCode.test("paseo://h/srv_1/agent/1a8385c")).toBe(true);
+  });
+
+  it("does not recognize paseo deep links in external markdown", () => {
+    const { linkRecognition } = prepareMarkdownSource("paseo://h/srv_1/agent/1a8385c", undefined, {
+      external: true,
+    });
+    expect("paseo://h/srv_1/agent/1a8385c".match(linkRecognition.text)).toBeNull();
+  });
+});

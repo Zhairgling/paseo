@@ -41,20 +41,34 @@ export function useMarkdownSource(
   links: {
     commandNames?: ReadonlySet<string>;
     forgeReferencePattern?: string;
+    knownSessionTokensKey?: string;
     external?: boolean;
   } = {},
 ) {
   const occurrenceKey = useId();
-  const { commandNames, forgeReferencePattern, external } = links;
+  const { commandNames, forgeReferencePattern, knownSessionTokensKey, external } = links;
+  const knownSessionTokens = useMemo(
+    () =>
+      knownSessionTokensKey ? knownSessionTokensKey.split("\u0000").filter(Boolean) : undefined,
+    [knownSessionTokensKey],
+  );
   const prepared = useMemo(
     () =>
       prepareMarkdownSource(text, context.workspaceRoot, {
         supportsSvg: isWeb,
         commandNames,
         forgeReferencePattern,
+        knownSessionTokens,
         external,
       }),
-    [text, context.workspaceRoot, commandNames, forgeReferencePattern, external],
+    [
+      text,
+      context.workspaceRoot,
+      commandNames,
+      forgeReferencePattern,
+      knownSessionTokens,
+      external,
+    ],
   );
   const sources = [...new Set(prepared.images.map((image) => image.source))];
   const acquisitions = sources.map((source) => {

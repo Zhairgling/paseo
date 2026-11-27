@@ -9,7 +9,14 @@ import { useStableEvent } from "@/hooks/use-stable-event";
 import { matchCommandLink, useAgentCommandHints, type CommandHints } from "@/agent-commands";
 import { useForgeShorthand } from "@/git/forge-shorthand";
 import { pluginOverviewUrl } from "@getpaseo/protocol/plugin-overview";
+import { useSessionStore } from "@/stores/session-store";
+import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { openExternalUrl } from "@/utils/open-external-url";
+import {
+  collectCandidateSessionTokens,
+  resolveKnownSessionTokensKey,
+  resolveSessionLink,
+} from "@/utils/session-link";
 import { AttachmentLightbox, type ImageLightboxSource } from "@/components/attachment-lightbox";
 import type { Theme } from "@/styles/theme";
 import { isWeb } from "@/constants/platform";
@@ -103,6 +110,15 @@ const MarkdownPart = memo(function MarkdownPart({
   const actions = useAssistantFileLinkActions();
   const workspaceForgeShorthand = useForgeShorthand();
   const forgeShorthand = external ? null : workspaceForgeShorthand;
+  const candidateSessionTokens = useMemo(
+    () => (external ? [] : collectCandidateSessionTokens(text)),
+    [external, text],
+  );
+  const matchedSessionTokensKey = useSessionStore((state) =>
+    external || candidateSessionTokens.length === 0
+      ? ""
+      : resolveKnownSessionTokensKey(candidateSessionTokens, state.sessions),
+  );
   const client =
     imageContext.client ??
     (environment.client?.readFile
@@ -119,6 +135,7 @@ const MarkdownPart = memo(function MarkdownPart({
     {
       commandNames: commandHints?.names,
       forgeReferencePattern: forgeShorthand?.pattern,
+      knownSessionTokensKey: matchedSessionTokensKey,
       external,
     },
   );
@@ -133,6 +150,15 @@ const MarkdownPart = memo(function MarkdownPart({
     const command = commandHints && matchCommandLink(url, sourceType, commandHints.names);
     if (command) {
       commandHints.insert(command);
+      return;
+    }
+    const sessionTarget = resolveSessionLink(
+      url,
+      useSessionStore.getState().sessions,
+      environment.serverId,
+    );
+    if (sessionTarget) {
+      navigateToAgent({ ...sessionTarget, pin: true });
       return;
     }
     const forgeUrl = sourceType === "text" ? forgeShorthand?.resolve(url) : null;

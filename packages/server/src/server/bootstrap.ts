@@ -912,7 +912,7 @@ export async function createPaseoDaemon(
   });
 
   // Homelab Multi-GPU, Iris mode & Unified Team API
-  registerHomelabRoutes(app, { paseoHome: config.paseoHome, logger });
+  registerHomelabRoutes(app, { paseoHome: config.paseoHome, serverId, logger });
 
   const httpServer = createHTTPServer(app);
   const listeners = createDaemonListeners({

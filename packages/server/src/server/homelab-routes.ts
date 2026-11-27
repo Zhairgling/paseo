@@ -5,6 +5,12 @@ import path from "node:path";
 import { promisify } from "node:util";
 import type { Express, Request, Response } from "express";
 import type { Logger } from "pino";
+import {
+  mutatePinnedSession,
+  readPinnedSessions,
+  writePinnedSessions,
+} from "./pinned-sessions-store.js";
+import { getOrCreateServerId } from "./server-id.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -658,9 +664,103 @@ async function buildTeamView(paseoHome: string, requestedCwd: string | undefined
 
 export function registerHomelabRoutes(
   app: Express,
-  deps: { paseoHome: string; logger: Pick<Logger, "info" | "warn" | "error"> },
+  deps: { paseoHome: string; serverId?: string; logger: Pick<Logger, "info" | "warn" | "error"> },
 ): void {
   const { paseoHome, logger } = deps;
+  const localServerId = deps.serverId ?? getOrCreateServerId(paseoHome);
+
+  app.get("/api/homelab/pins", (_req: Request, res: Response) => {
+    void (async () => {
+      try {
+        const state = await readPinnedSessions(paseoHome);
+        res.json({ ok: true, serverId: localServerId, ...state });
+      } catch (err) {
+        logger.warn({ err }, "Homelab pins read failed");
+        res.status(500).json({ ok: false, error: "Impossible de lire les sessions épinglées" });
+      }
+    })();
+  });
+
+  app.post("/api/homelab/pins", (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      pinnedKeys?: unknown;
+      key?: unknown;
+      serverId?: unknown;
+      agentId?: unknown;
+      action?: unknown;
+    };
+    void (async () => {
+      try {
+        if (Array.isArray(body.pinnedKeys)) {
+          const saved = await writePinnedSessions(
+            paseoHome,
+            body.pinnedKeys.map((k) => String(k)),
+          );
+          res.json({ ok: true, serverId: localServerId, ...saved });
+          return;
+        }
+        const actionRaw = String(body.action ?? "pin")
+          .trim()
+          .toLowerCase();
+        let action: "pin" | "unpin" | "toggle" = "pin";
+        if (actionRaw === "unpin") {
+          action = "unpin";
+        } else if (actionRaw === "toggle") {
+          action = "toggle";
+        }
+        const serverId =
+          typeof body.serverId === "string" && body.serverId.trim()
+            ? body.serverId.trim()
+            : localServerId;
+        const agentId = typeof body.agentId === "string" ? body.agentId.trim() : undefined;
+        const key = typeof body.key === "string" ? body.key.trim() : undefined;
+        const result = await mutatePinnedSession(paseoHome, {
+          key,
+          serverId,
+          agentId,
+          action,
+        });
+        res.json({ ok: true, serverId: localServerId, ...result });
+      } catch (err) {
+        logger.warn({ err }, "Homelab pins update failed");
+        res.status(400).json({
+          ok: false,
+          error: err instanceof Error ? err.message : "Mise à jour des épingles impossible",
+        });
+      }
+    })();
+  });
+
+  app.post("/api/homelab/permit", (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      agentId?: unknown;
+      requestId?: unknown;
+      decision?: unknown;
+    };
+    const agentId = String(body.agentId ?? "").trim();
+    const requestId = String(body.requestId ?? "").trim();
+    const decision = String(body.decision ?? "")
+      .trim()
+      .toLowerCase();
+    if (!agentId || !requestId || (decision !== "allow" && decision !== "deny")) {
+      res.status(400).json({
+        ok: false,
+        error: "Paramètres requis : agentId, requestId, decision (allow|deny)",
+      });
+      return;
+    }
+    void (async () => {
+      const r = await runCmd(PASEO_BIN, ["permit", decision, agentId, requestId], 10_000);
+      if (r.rc === 0) {
+        res.json({ ok: true, agentId, requestId, decision });
+      } else {
+        res.status(500).json({
+          ok: false,
+          error: (r.stderr || r.stdout || `code ${r.rc}`).trim(),
+        });
+      }
+    })();
+  });
 
   app.get("/api/homelab/gpu", (_req: Request, res: Response) => {
     void (async () => {

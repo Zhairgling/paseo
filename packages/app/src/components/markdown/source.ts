@@ -25,16 +25,6 @@ const FILE_NAME = String.raw`${PATH_SEGMENT}\.(?:${FILE_EXTENSIONS})`;
 // Bare prose paths need a known extension, a line suffix, or at least two separators.
 const PROSE_PATH = String.raw`(?:${PATH_PREFIX}${HAS_PATH_LETTER}${SEPARATED_PATH}|${HAS_PATH_LETTER}(?:${PATH_SEGMENT}(?:[\\/]${PATH_SEGMENT})*[\\/]${FILE_NAME}|${PATH_SEGMENT}(?:[\\/]${PATH_SEGMENT}){2,}|${SEPARATED_PATH}(?=:)))`;
 
-function createTextPattern(path: string, forgeReferencePattern?: string): RegExp {
-  // Forge references come before paths so `group/project#12` is not read as a path.
-  const forgeReference = forgeReferencePattern ? `|${forgeReferencePattern}` : "";
-  // The native adapter mistakes a literal + in lookbehind for a quantifier; use its hex escape.
-  return new RegExp(
-    String.raw`(?:${BARE_URL}${forgeReference}|(?<![a-zA-Z0-9\u0080-\uFFFF_@.%\x2b~:/\\-])(?:${path}|${FILE_NAME})${LINE_SUFFIX}(?![a-zA-Z0-9\u0080-\uFFFF_@%+:/\\-]|\.${PATH_CHARACTER}))`,
-    "g",
-  );
-}
-
 // Matches bare URLs that MD4C does not autolink, like single-label or bracketed hosts.
 // Quotes and unbalanced closing parentheses end the URL. Trailing sentence punctuation stays outside.
 // CJK, fullwidth and typographic punctuation (、。，（）【】「」“”…) also ends it; CJK letters do not.
@@ -43,18 +33,51 @@ const URL_BOUNDARY =
 const URL_CHARACTER = String.raw`[^\s<>()"'\x60${URL_BOUNDARY}]`;
 const URL_GROUP = String.raw`\(${URL_CHARACTER}*\)`;
 const BARE_URL = String.raw`https?://(?:${URL_CHARACTER}|${URL_GROUP})*(?:[^\s<>()"'\x60.,;:!?${URL_BOUNDARY}]|${URL_GROUP})`;
+const PASEO_URL = String.raw`paseo:///?(?:${URL_CHARACTER}|${URL_GROUP})*(?:[^\s<>()"'\x60.,;:!?${URL_BOUNDARY}]|${URL_GROUP})`;
+
+function createTextPattern(
+  path: string,
+  forgeReferencePattern?: string,
+  sessionTokenPattern?: string,
+): RegExp {
+  // Forge references come before paths so `group/project#12` is not read as a path.
+  const forgeReference = forgeReferencePattern ? `|${forgeReferencePattern}` : "";
+  const sessionToken = sessionTokenPattern ? `|${sessionTokenPattern}` : "";
+  // The native adapter mistakes a literal + in lookbehind for a quantifier; use its hex escape.
+  return new RegExp(
+    String.raw`(?:${BARE_URL}|${PASEO_URL}${forgeReference}${sessionToken}|(?<![a-zA-Z0-9\u0080-\uFFFF_@.%\x2b~:/\\-])(?:${path}|${FILE_NAME})${LINE_SUFFIX}(?![a-zA-Z0-9\u0080-\uFFFF_@%+:/\\-]|\.${PATH_CHARACTER}))`,
+    "g",
+  );
+}
+
+function escapeRegexLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildSessionTokenPattern(sessionTokens?: readonly string[]): string | undefined {
+  if (!sessionTokens || sessionTokens.length === 0) return undefined;
+  const unique = [...new Set(sessionTokens.filter((token) => token.length >= 7))].sort(
+    (a, b) => b.length - a.length,
+  );
+  if (unique.length === 0) return undefined;
+  return String.raw`(?<![a-zA-Z0-9_-])(?:${unique.map(escapeRegexLiteral).join("|")})(?![a-zA-Z0-9_-])`;
+}
 
 const TEXT_PATTERN = createTextPattern(PROSE_PATH);
 // One entry per distinct workspace forge remote; reuse keeps the engine's regex identity stable.
 const textPatternsByForgeReference = new Map<string, RegExp>();
-function textPattern(forgeReferencePattern?: string): RegExp {
-  if (!forgeReferencePattern) return TEXT_PATTERN;
-  let pattern = textPatternsByForgeReference.get(forgeReferencePattern);
-  if (!pattern) {
-    pattern = createTextPattern(PROSE_PATH, forgeReferencePattern);
-    textPatternsByForgeReference.set(forgeReferencePattern, pattern);
+function textPattern(forgeReferencePattern?: string, sessionTokens?: readonly string[]): RegExp {
+  const sessionTokenPattern = buildSessionTokenPattern(sessionTokens);
+  if (!forgeReferencePattern && !sessionTokenPattern) return TEXT_PATTERN;
+  if (!sessionTokenPattern && forgeReferencePattern) {
+    let pattern = textPatternsByForgeReference.get(forgeReferencePattern);
+    if (!pattern) {
+      pattern = createTextPattern(PROSE_PATH, forgeReferencePattern);
+      textPatternsByForgeReference.set(forgeReferencePattern, pattern);
+    }
+    return pattern;
   }
-  return pattern;
+  return createTextPattern(PROSE_PATH, forgeReferencePattern, sessionTokenPattern);
 }
 
 // External Markdown links only what its author wrote as an https URL.
@@ -63,17 +86,25 @@ const EXTERNAL_LINKS = {
   inlineCode: /^https:\/\/[^\s<>]+$/,
 };
 
-function linkMetadata(inlineCodePaths: ReadonlySet<string>, forgeReferencePattern?: string) {
+function linkMetadata(
+  inlineCodePaths: ReadonlySet<string>,
+  forgeReferencePattern?: string,
+  sessionTokens?: readonly string[],
+) {
   // The engine accepts regexes on both platforms. Classify complete code spans
   // first, then pass literal matches rather than maintaining a second path grammar.
-  const alternatives = [...inlineCodePaths].map((path) =>
-    path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-  );
+  const combinedInlineTokens = new Set(inlineCodePaths);
+  if (sessionTokens) {
+    for (const token of sessionTokens) {
+      if (token.length >= 7) combinedInlineTokens.add(token);
+    }
+  }
+  const alternatives = [...combinedInlineTokens].map(escapeRegexLiteral);
   return {
     linkRecognition: {
-      text: textPattern(forgeReferencePattern),
+      text: textPattern(forgeReferencePattern, sessionTokens),
       inlineCode: new RegExp(
-        String.raw`^(?:https?://[^\s<>]+${alternatives.length ? `|${alternatives.join("|")}` : ""})$`,
+        String.raw`^(?:(?:https?|paseo)://[^\s<>]+${alternatives.length ? `|${alternatives.join("|")}` : ""})$`,
       ),
     },
     linkSource: markdownLinkSource,
@@ -159,6 +190,8 @@ export function prepareMarkdownSource(
     commandNames?: ReadonlySet<string>;
     /** Regex source for forge references such as `#12`; see `@/git/forge-shorthand`. */
     forgeReferencePattern?: string;
+    /** Exact session IDs/prefixes already verified against known agents so only real sessions linkify. */
+    knownSessionTokens?: readonly string[];
     /**
      * Author-controlled Markdown from outside this host, such as a plugin README. It follows the
      * registry's overview contract: only absolute https links and images, and nothing is
@@ -181,6 +214,7 @@ export function prepareMarkdownSource(
     : linkMetadata(
         collectInlineCodePaths(source, workspaceRoot, options.commandNames),
         options.forgeReferencePattern,
+        options.knownSessionTokens,
       );
   const edits: { start: number; end: number; text: string }[] = [];
   if (

@@ -11,18 +11,21 @@ function toTap(response: Notifications.NotificationResponse): NotificationTap {
 export function createNotificationOpenSource(): NotificationOpenSource {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: false,
-      shouldShowBanner: false,
+      shouldShowAlert: true,
+      shouldShowBanner: true,
       shouldShowList: true,
-      shouldPlaySound: false,
+      shouldPlaySound: true,
       shouldSetBadge: false,
     }),
   });
   return {
     subscribe(onTap) {
-      const subscription = Notifications.addNotificationResponseReceivedListener((response) =>
-        onTap(toTap(response)),
-      );
+      const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+        if (response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) {
+          return;
+        }
+        onTap(toTap(response));
+      });
       return () => subscription.remove();
     },
     async takeLaunchTap() {
