@@ -82,7 +82,7 @@ import {
   mountBrowserAutomationDaemonClientHandler,
 } from "@/desktop/browser/automation/handler";
 import { schedulesQueryBaseKey } from "@/schedules/aggregated-schedules";
-import { dispatchComposerAgentMessage, sendQueuedComposerMessageNow } from "@/composer/actions";
+import { dispatchComposerAgentMessage, sendQueuedComposerMessagesBatch } from "@/composer/actions";
 import { createMessageSubmissionWriter } from "@/composer/submission/writer";
 import { resolveComposerAttachmentSubmitFormat } from "@/composer/attachments/submit";
 import { encodeImages } from "@/utils/encode-images";
@@ -2892,10 +2892,8 @@ export class HostRuntimeStore {
       return;
     }
     this.queuedAgentDrainInFlight.add(drainKey);
-    const next = queue[0];
-    void sendQueuedComposerMessageNow({
+    void sendQueuedComposerMessagesBatch({
       agentId,
-      messageId: next.id,
       queue: {
         read: (queuedAgentId) =>
           useSessionStore.getState().sessions[serverId]?.queuedMessages.get(queuedAgentId) ?? [],

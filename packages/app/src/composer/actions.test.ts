@@ -20,6 +20,7 @@ import {
 import {
   uploadFileAttachments,
   cancelComposerAgent,
+  combineQueuedComposerMessages,
   dispatchComposerAgentMessage,
   editQueuedComposerMessage,
   findForgeItemByOption,
@@ -28,7 +29,9 @@ import {
   pickAndPersistImages,
   queueComposerMessage,
   removeComposerAttachmentAtIndex,
+  removeQueuedComposerMessage,
   sendQueuedComposerMessageNow,
+  sendQueuedComposerMessagesBatch,
   toggleForgeAttachment,
   toggleForgeAttachmentFromPicker,
   type MessageSubmissionWriter,
@@ -848,6 +851,112 @@ describe("sendQueuedComposerMessageNow", () => {
     expect(result).toEqual({ status: "failed", errorMessage: "network down" });
     const state = queue.state.get("agent");
     expect(state?.map((m) => m.id)).toEqual(["msg-1", "msg-2"]);
+  });
+});
+
+describe("removeQueuedComposerMessage and sendQueuedComposerMessagesBatch", () => {
+  it("removes only the targeted queued message", () => {
+    const queue = createFakeQueue(
+      new Map([
+        [
+          "agent",
+          [
+            { id: "msg-1", text: "first", attachments: [] },
+            { id: "msg-2", text: "second", attachments: [] },
+          ],
+        ],
+      ]),
+    );
+
+    expect(removeQueuedComposerMessage({ agentId: "agent", messageId: "msg-1", queue })).toBe(true);
+    expect(removeQueuedComposerMessage({ agentId: "agent", messageId: "missing", queue })).toBe(
+      false,
+    );
+    expect(queue.state.get("agent")?.map((m) => m.id)).toEqual(["msg-2"]);
+  });
+
+  it("combines multiple queued messages and attachments in chronological order", () => {
+    const firstAttachment = reviewWorkspaceAttachment("First review");
+    const secondAttachment = reviewWorkspaceAttachment("Second review");
+
+    expect(
+      combineQueuedComposerMessages([
+        { id: "1", text: "  first note  ", attachments: [firstAttachment] },
+        { id: "2", text: "", attachments: [secondAttachment] },
+        { id: "3", text: "third note", attachments: [] },
+      ]),
+    ).toEqual({
+      text: "first note\n\nthird note",
+      attachments: [firstAttachment, secondAttachment],
+    });
+  });
+
+  it("drains the whole queue as one combined message while preserving messages appended during submit", async () => {
+    const firstAttachment = reviewWorkspaceAttachment("One");
+    const secondAttachment = reviewWorkspaceAttachment("Two");
+    const queue = createFakeQueue(
+      new Map([
+        [
+          "agent",
+          [
+            { id: "m1", text: "step 1", attachments: [firstAttachment] },
+            { id: "m2", text: "step 2", attachments: [secondAttachment] },
+          ],
+        ],
+      ]),
+    );
+    const submitted: Array<{ text: string; attachments: ComposerAttachment[] }> = [];
+
+    const result = await sendQueuedComposerMessagesBatch({
+      agentId: "agent",
+      queue,
+      submitMessage: async (input) => {
+        submitted.push(input);
+        queueComposerMessage({
+          agentId: "agent",
+          text: "arrived during rpc",
+          attachments: [],
+          queue,
+        });
+      },
+    });
+
+    expect(result).toEqual({ status: "submitted" });
+    expect(submitted).toEqual([
+      { text: "step 1\n\nstep 2", attachments: [firstAttachment, secondAttachment] },
+    ]);
+    expect(queue.state.get("agent")?.map((m) => m.text)).toEqual(["arrived during rpc"]);
+  });
+
+  it("restores all drained items in order before later messages when batch send fails", async () => {
+    const queue = createFakeQueue(
+      new Map([
+        [
+          "agent",
+          [
+            { id: "m1", text: "first", attachments: [] },
+            { id: "m2", text: "second", attachments: [] },
+          ],
+        ],
+      ]),
+    );
+
+    const result = await sendQueuedComposerMessagesBatch({
+      agentId: "agent",
+      queue,
+      submitMessage: async () => {
+        queueComposerMessage({
+          agentId: "agent",
+          text: "third",
+          attachments: [],
+          queue,
+        });
+        throw new Error("send failed");
+      },
+    });
+
+    expect(result).toEqual({ status: "failed", errorMessage: "send failed" });
+    expect(queue.state.get("agent")?.map((m) => m.text)).toEqual(["first", "second", "third"]);
   });
 });
 

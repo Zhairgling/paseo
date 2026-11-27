@@ -4699,6 +4699,51 @@ describe("HostRuntimeStore", () => {
     sessionStore.clearSession(host.serverId);
   });
 
+  it("combines all chained queued messages in order into one single prompt on drain", async () => {
+    const host = makeHost({ serverId: "srv_batch_queue_drain" });
+    const fakeClient = new FakeDaemonClient();
+    const store = new HostRuntimeStore({
+      deps: {
+        createClient: () => fakeClient as unknown as DaemonClient,
+        connectToDaemon: async () => ({
+          client: fakeClient as unknown as DaemonClient,
+          serverId: host.serverId,
+          hostname: null,
+        }),
+        getClientId: async () => "cid_batch_queue_drain",
+      },
+    });
+    const sessionStore = useSessionStore.getState();
+    sessionStore.initializeSession(host.serverId, fakeClient as unknown as DaemonClient, 1);
+    sessionStore.setQueuedMessages(
+      host.serverId,
+      new Map([
+        [
+          "agent",
+          [
+            { id: "q1", text: "première consigne", attachments: [] },
+            { id: "q2", text: "deuxième consigne", attachments: [] },
+            { id: "q3", text: "troisième consigne", attachments: [] },
+          ],
+        ],
+      ]),
+    );
+
+    store.drainQueuedAgentMessage(host.serverId, "agent");
+    await fakeClient.waitForSentMessages(1);
+
+    expect(fakeClient.sentAgentMessages).toHaveLength(1);
+    expect(fakeClient.sentAgentMessages[0]?.[1]).toBe(
+      "première consigne\n\ndeuxième consigne\n\ntroisième consigne",
+    );
+    await vi.waitFor(() => {
+      expect(
+        useSessionStore.getState().sessions[host.serverId]?.queuedMessages.get("agent"),
+      ).toEqual([]);
+    });
+    sessionStore.clearSession(host.serverId);
+  });
+
   it("uses legacy GitHub attachments when draining a queue for an old daemon", async () => {
     const host = makeHost({ serverId: "srv_legacy_queue_attachment" });
     const fakeClient = new FakeDaemonClient();

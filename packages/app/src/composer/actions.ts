@@ -272,23 +272,93 @@ export interface EditQueuedComposerMessageResult {
   attachments: UserComposerAttachment[];
 }
 
+function removeQueuedMessagesFromQueue(
+  queue: QueueWriter,
+  agentId: string,
+  ids: ReadonlySet<string>,
+): void {
+  queue.write((prev) => {
+    const next = new Map(prev);
+    next.set(
+      agentId,
+      (prev.get(agentId) ?? []).filter((q) => !ids.has(q.id)),
+    );
+    return next;
+  });
+}
+
+function restoreQueuedMessagesToFront(
+  queue: QueueWriter,
+  agentId: string,
+  items: readonly QueuedComposerMessage[],
+): void {
+  const restoredIds = new Set(items.map((item) => item.id));
+  queue.write((prev) => {
+    const next = new Map(prev);
+    const remaining = (prev.get(agentId) ?? []).filter((q) => !restoredIds.has(q.id));
+    next.set(agentId, [...items, ...remaining]);
+    return next;
+  });
+}
+
+async function dispatchQueuedBatch(args: {
+  agentId: string;
+  items: readonly QueuedComposerMessage[];
+  queue: QueueWriter;
+  submitMessage: (input: { text: string; attachments: ComposerAttachment[] }) => Promise<void>;
+  failedToSendMessage?: string;
+}): Promise<SendQueuedComposerMessageNowResult> {
+  const { agentId, items, queue, submitMessage, failedToSendMessage } = args;
+  const combined = combineQueuedComposerMessages(items);
+  removeQueuedMessagesFromQueue(queue, agentId, new Set(items.map((item) => item.id)));
+  try {
+    await submitMessage(combined);
+    return { status: "submitted" };
+  } catch (error) {
+    restoreQueuedMessagesToFront(queue, agentId, items);
+    return {
+      status: "failed",
+      errorMessage:
+        error instanceof Error
+          ? error.message
+          : (failedToSendMessage ?? i18n.t("composer.errors.failedToSend")),
+    };
+  }
+}
+
+export function combineQueuedComposerMessages(items: readonly QueuedComposerMessage[]): {
+  text: string;
+  attachments: ComposerAttachment[];
+} {
+  const text = items
+    .map((item) => item.text.trim())
+    .filter((part) => part.length > 0)
+    .join("\n\n");
+  const attachments = items.flatMap((item) => item.attachments);
+  return { text, attachments };
+}
+
 export function editQueuedComposerMessage(
   input: EditQueuedComposerMessageInput,
 ): EditQueuedComposerMessageResult | null {
   const item = input.queue.read(input.agentId).find((q) => q.id === input.messageId);
   if (!item) return null;
-  input.queue.write((prev) => {
-    const next = new Map(prev);
-    next.set(
-      input.agentId,
-      (prev.get(input.agentId) ?? []).filter((q) => q.id !== input.messageId),
-    );
-    return next;
-  });
+  removeQueuedMessagesFromQueue(input.queue, input.agentId, new Set([input.messageId]));
   return {
     text: item.text,
     attachments: userAttachmentsOnly(item.attachments),
   };
+}
+
+export function removeQueuedComposerMessage(input: {
+  agentId: string;
+  messageId: string;
+  queue: QueueWriter;
+}): boolean {
+  const exists = input.queue.read(input.agentId).some((q) => q.id === input.messageId);
+  if (!exists) return false;
+  removeQueuedMessagesFromQueue(input.queue, input.agentId, new Set([input.messageId]));
+  return true;
 }
 
 export interface SendQueuedComposerMessageNowInput {
@@ -309,31 +379,38 @@ export async function sendQueuedComposerMessageNow(
 ): Promise<SendQueuedComposerMessageNowResult> {
   const item = input.queue.read(input.agentId).find((q) => q.id === input.messageId);
   if (!item) return { status: "missing" };
-  input.queue.write((prev) => {
-    const next = new Map(prev);
-    next.set(
-      input.agentId,
-      (prev.get(input.agentId) ?? []).filter((q) => q.id !== input.messageId),
-    );
-    return next;
+  return dispatchQueuedBatch({
+    agentId: input.agentId,
+    items: [item],
+    queue: input.queue,
+    submitMessage: input.submitMessage,
+    failedToSendMessage: input.failedToSendMessage,
   });
-  try {
-    await input.submitMessage({ text: item.text, attachments: item.attachments });
-    return { status: "submitted" };
-  } catch (error) {
-    input.queue.write((prev) => {
-      const next = new Map(prev);
-      next.set(input.agentId, [item, ...(prev.get(input.agentId) ?? [])]);
-      return next;
-    });
-    return {
-      status: "failed",
-      errorMessage:
-        error instanceof Error
-          ? error.message
-          : (input.failedToSendMessage ?? i18n.t("composer.errors.failedToSend")),
-    };
-  }
+}
+
+export interface SendQueuedComposerMessagesBatchInput {
+  agentId: string;
+  queue: QueueWriter;
+  submitMessage: (input: { text: string; attachments: ComposerAttachment[] }) => Promise<void>;
+  failedToSendMessage?: string;
+}
+
+/**
+ * Drains every queued message for an agent in chronological order as one combined prompt,
+ * matching Claude Code's queued message batching.
+ */
+export async function sendQueuedComposerMessagesBatch(
+  input: SendQueuedComposerMessagesBatchInput,
+): Promise<SendQueuedComposerMessageNowResult> {
+  const items = input.queue.read(input.agentId);
+  if (items.length === 0) return { status: "missing" };
+  return dispatchQueuedBatch({
+    agentId: input.agentId,
+    items,
+    queue: input.queue,
+    submitMessage: input.submitMessage,
+    failedToSendMessage: input.failedToSendMessage,
+  });
 }
 
 export interface OpenComposerAttachmentInput {

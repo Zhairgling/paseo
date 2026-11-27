@@ -13,6 +13,13 @@ const AppliedMigrationsSchema = z.strictObject({ applied: z.array(z.string()) })
  */
 const STEER_DEFAULT_MIGRATION = "steer-default";
 
+/**
+ * Queuing avoids accidentally cutting off providers that lack native active-turn steering
+ * (such as Antigravity/Gemini) when sending follow-ups from mobile. Flips stored "steer" to
+ * "queue" once; picking "steer" or "interrupt" afterwards sticks.
+ */
+const QUEUE_DEFAULT_MIGRATION = "queue-default";
+
 /** Existing mobile installs materialized the old 15px content default in storage. */
 const MOBILE_CONTENT_16_MIGRATION = "mobile-content-16";
 
@@ -41,6 +48,13 @@ export async function migrateAppSettings(
     migrated =
       migrated.sendBehavior === "interrupt" ? { ...migrated, sendBehavior: "steer" } : migrated;
     applied.add(STEER_DEFAULT_MIGRATION);
+    addedMigration = true;
+  }
+
+  if (!applied.has(QUEUE_DEFAULT_MIGRATION)) {
+    migrated =
+      migrated.sendBehavior === "steer" ? { ...migrated, sendBehavior: "queue" } : migrated;
+    applied.add(QUEUE_DEFAULT_MIGRATION);
     addedMigration = true;
   }
 
