@@ -13,7 +13,7 @@ export function isImageFilePathOrUrl(value: string): boolean {
     .trim()
     .replace(/[?#].*$/, "")
     .toLowerCase();
-  const match = /\.([a-z0-9]+)$/.exec(stripped);
+  const match = /(?:^|[\\/])[^\\/.\s][^\\/\s]*\.([a-z0-9]+)$/.exec(stripped);
   return Boolean(match?.[1] && ASSISTANT_IMAGE_EXTENSIONS.has(match[1]));
 }
 

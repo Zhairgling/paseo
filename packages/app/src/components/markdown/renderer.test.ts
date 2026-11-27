@@ -1197,6 +1197,7 @@ describe("linked image references and chat image sizing", () => {
       "```",
       "[Doc](docs/readme.md)",
       "[doublon](file:///tmp/inline.png)",
+      "Extensions nues (.png, .jpg, .webp) ignorees.",
     ].join("\n");
 
     const prepared = prepareMarkdownSource(source, "/repo");

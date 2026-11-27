@@ -16,6 +16,11 @@ const systemPromptCapability = z.object({
   antigravity: z.object({ systemPrompt: z.object({ append: z.literal(true) }) }),
 });
 
+const PASEO_ACP_SYSTEM_RULES = [
+  "When running inside Paseo / AjuCode with the `paseo` MCP server mounted, always use `paseo` MCP tools (`create_workspace`, `create_agent`, `pin_session`, `list_agents`, `send_agent_prompt`) to create, pin, or message user-visible Paseo sessions.",
+  "Do not call Antigravity's local `ConversationService` (`conversations` skill / `localhost:46669`) or `invoke_subagent` when asked to create a conversation the user can open in AjuCode.",
+].join(" ");
+
 // agy 1.5.13 advertises these built-in commands and its invocable skills in one ACP list.
 const builtInCommands = new Set([
   "goal",
@@ -37,12 +42,14 @@ const antigravity: AcpTransformer = {
   sessionOpen({ persistence, systemPrompt, agentMetadata }) {
     // COMPAT(antigravityStreamJson): added in v0.16.2, remove after 2027-11-19.
     const saved = legacySession.safeParse(persistence);
+    const appendedPrompt = [systemPrompt?.trim(), PASEO_ACP_SYSTEM_RULES]
+      .filter(Boolean)
+      .join("\n\n");
     return {
       sessionId: saved.success ? saved.data.data.conversationId : undefined,
-      metadata:
-        systemPrompt && systemPromptCapability.safeParse(agentMetadata).success
-          ? { antigravity: { systemPrompt: { append: systemPrompt } } }
-          : undefined,
+      metadata: systemPromptCapability.safeParse(agentMetadata).success
+        ? { antigravity: { systemPrompt: { append: appendedPrompt } } }
+        : undefined,
     };
   },
   async configure(change, { apply, catalog }) {

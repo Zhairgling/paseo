@@ -15,6 +15,7 @@ import { stat } from "node:fs/promises";
 import { z } from "zod";
 import { ensureValidJson } from "../../json-utils.js";
 import { mutatePinnedSession } from "../../pinned-sessions-store.js";
+import { buildAgentDeepLink } from "@getpaseo/protocol/agent-deep-link";
 import { getOrCreateServerId } from "../../server-id.js";
 import type { Logger } from "pino";
 
@@ -1635,6 +1636,7 @@ function createToolCatalog(
       inputSchema: createAgentInputSchema,
       outputSchema: {
         agentId: z.string(),
+        url: z.string().optional(),
         type: AgentProviderEnum,
         status: AgentStatusEnum,
         cwd: z.string(),
@@ -1698,6 +1700,10 @@ function createToolCatalog(
 
       // Return immediately for async creation.
       const currentSnapshot = agentManager.getAgent(snapshot.id) ?? snapshot;
+      const agentUrl =
+        options.serverId && options.serverId.trim()
+          ? buildAgentDeepLink({ serverId: options.serverId, agentId: currentSnapshot.id })
+          : undefined;
       const guidance =
         callerAgentId && notifyOnFinish && initialPromptStarted
           ? "You will get notified when the created agent finishes, errors, or needs permission. Do not poll for status; continue with other work until the notification arrives."
@@ -1706,6 +1712,7 @@ function createToolCatalog(
         content: [],
         structuredContent: ensureValidJson({
           agentId: currentSnapshot.id,
+          ...(agentUrl ? { url: agentUrl } : {}),
           type: snapshot.provider,
           status: currentSnapshot.lifecycle,
           cwd: currentSnapshot.cwd,

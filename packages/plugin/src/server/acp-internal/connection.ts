@@ -1,4 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { spawnProcess, terminateProcess } from "../process.js";
 import { Readable, Writable } from "node:stream";
 import {
@@ -8,6 +10,8 @@ import {
   ndJsonStream,
   type Client,
   type AgentCapabilities,
+  type McpCapabilities,
+  type McpServer,
   type ContentBlock,
   type NewSessionResponse,
   type RequestPermissionRequest,
@@ -674,7 +678,7 @@ class AcpRuntime {
     connectionCapabilities: readonly ProviderCapability[],
     isConnectionClosed: () => boolean,
   ): Promise<readonly ProviderCapability[]> {
-    const mcpServers = toAcpMcpServers(input.config);
+    const mcpServers = toAcpMcpServers(input.config, this.agentCapabilities.mcpCapabilities);
     this.mcpServerNames = mcpServers.map((server) => server.name);
     let nativeSessionId = readNativeSessionId(input.persistence);
     const metadata: Record<string, unknown> = {
@@ -2310,7 +2314,19 @@ function firstText(...values: Array<string | null | undefined>): string | undefi
   return values.find((value): value is string => typeof value === "string");
 }
 
-function toAcpMcpServers(config: ProviderSessionConfig) {
+function resolveMcpHttpBridgeArgs(): string[] {
+  const compiledBridge = fileURLToPath(new URL("./mcp-http-stdio-bridge.js", import.meta.url));
+  if (existsSync(compiledBridge)) {
+    return [compiledBridge];
+  }
+  const sourceBridge = fileURLToPath(new URL("./mcp-http-stdio-bridge.ts", import.meta.url));
+  return ["--experimental-strip-types", sourceBridge];
+}
+
+export function toAcpMcpServers(
+  config: ProviderSessionConfig,
+  mcpCapabilities?: McpCapabilities | null,
+): McpServer[] {
   return Object.entries(config.mcpServers).map(([name, server]) => {
     if (server.type === "stdio") {
       return {
@@ -2320,11 +2336,30 @@ function toAcpMcpServers(config: ProviderSessionConfig) {
         env: Object.entries(server.env ?? {}).map(([key, value]) => ({ name: key, value })),
       };
     }
+    const headers = Object.entries(server.headers ?? {}).map(([key, value]) => ({
+      name: key,
+      value,
+    }));
+    const supportsNativeTransport =
+      server.type === "http" ? mcpCapabilities?.http === true : mcpCapabilities?.sse === true;
+    if (supportsNativeTransport) {
+      return {
+        type: server.type,
+        name,
+        url: server.url,
+        headers,
+      };
+    }
+    // ACP agents only accept HTTP/SSE servers when mcpCapabilities advertises them;
+    // bridge HTTP/SSE MCP endpoints (such as Paseo's own /mcp/agents) over stdio otherwise.
     return {
-      type: server.type,
       name,
-      url: server.url,
-      headers: Object.entries(server.headers ?? {}).map(([key, value]) => ({ name: key, value })),
+      command: process.execPath,
+      args: resolveMcpHttpBridgeArgs(),
+      env: [
+        { name: "PASEO_MCP_BRIDGE_URL", value: server.url },
+        { name: "PASEO_MCP_BRIDGE_HEADERS", value: JSON.stringify(headers) },
+      ],
     };
   });
 }
