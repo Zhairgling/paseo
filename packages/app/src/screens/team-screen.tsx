@@ -586,6 +586,13 @@ function formatAutoStop(seconds: number | undefined): string | null {
   return `Arrêt auto dans ~${mins} min`;
 }
 
+function formatSlotSummary(metrics: ReturnType<typeof computeColabGpuMetrics>): string {
+  const detail = metrics.isQueued
+    ? `+${metrics.inFlight - metrics.parallelSlots} en file`
+    : `${metrics.freeSlots} libre${metrics.freeSlots > 1 ? "s" : ""}`;
+  return `${metrics.inFlight} / ${metrics.parallelSlots} slots (${detail})`;
+}
+
 function ColabRouterCard({ gpu, onToggleTts }: { gpu: HomelabGpuStatus; onToggleTts: () => void }) {
   const colabHealth = getColabHealth(gpu.colab);
   const metrics = computeColabGpuMetrics(gpu.colab);
@@ -598,6 +605,7 @@ function ColabRouterCard({ gpu, onToggleTts }: { gpu: HomelabGpuStatus; onToggle
       ? `EN CHARGE (${metrics.inFlight})`
       : (gpu.colab.state ?? "inconnu").toUpperCase();
   const vramPrefix = metrics.vramEstimated ? "~" : "";
+  const slotSummary = formatSlotSummary(metrics);
 
   return (
     <View style={styles.card}>
@@ -620,7 +628,15 @@ function ColabRouterCard({ gpu, onToggleTts }: { gpu: HomelabGpuStatus; onToggle
 
       <View style={styles.gaugeBlock}>
         <View style={styles.msgHead}>
-          <Text style={styles.kvLine}>Utilisation GPU / VRAM</Text>
+          <Text style={styles.kvLine}>Charge GPU (slots parallèles)</Text>
+          <Text style={styles.monoMuted}>{slotSummary}</Text>
+        </View>
+        <UsageMeter percent={metrics.loadPct} tone={metrics.loadTone} style={styles.gaugeBar} />
+      </View>
+
+      <View style={styles.gaugeBlock}>
+        <View style={styles.msgHead}>
+          <Text style={styles.kvLine}>Mémoire VRAM</Text>
           <Text style={styles.monoMuted}>
             {vramPrefix}
             {metrics.vramPct}% ({vramPrefix}

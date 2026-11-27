@@ -5,6 +5,8 @@ export interface ModelSelectorMeta {
   price: string;
   /** Direct comparison against Anthropic Claude (or Google Gemini) models. */
   claudeCompare: string;
+  /** Sort rank from most capable (lowest number) to lightest (highest number). */
+  rank: number;
 }
 
 interface ModelMetaRule {
@@ -15,19 +17,21 @@ interface ModelMetaRule {
 const MODEL_META_RULES: readonly ModelMetaRule[] = [
   // Google Gemini 4 family (Antigravity — Google AI Ultra)
   {
+    match: (_p, id, l) => id.includes("gemini-4-carbon") || l.includes("gemini 4 carbon"),
+    meta: {
+      summary: "Raisonnement profond long horizon (1M ctx)",
+      price: "Inclus Google AI Ultra · Quota élevé",
+      claudeCompare: "vs Claude : ≈ Opus 5.5 / Fable 5.2 (tâches très dures)",
+      rank: 10,
+    },
+  },
+  {
     match: (_p, id, l) => id.includes("gemini-4-neon") || l.includes("gemini 4 neon"),
     meta: {
       summary: "Code & raisonnement avancé (1M ctx)",
       price: "Inclus Google AI Ultra · Quota moyen",
       claudeCompare: "vs Claude : ≈ Opus 5.5 (plus rapide, ~25 % plus économe)",
-    },
-  },
-  {
-    match: (_p, id, l) => id.includes("gemini-4-hydrogen") || l.includes("gemini 4 hydrogen"),
-    meta: {
-      summary: "Rapide & léger au quotidien (1M ctx)",
-      price: "Inclus Google AI Ultra · Quota léger",
-      claudeCompare: "vs Claude : ≈ Sonnet 5.5 (~2× plus léger que Neon)",
+      rank: 20,
     },
   },
   {
@@ -36,14 +40,16 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "Stable & gros contexte (1M ctx)",
       price: "Inclus Google AI Ultra · Quota moyen",
       claudeCompare: "vs Claude : ≈ Sonnet 5.5",
+      rank: 25,
     },
   },
   {
-    match: (_p, id, l) => id.includes("gemini-4-carbon") || l.includes("gemini 4 carbon"),
+    match: (_p, id, l) => id.includes("gemini-4-hydrogen") || l.includes("gemini 4 hydrogen"),
     meta: {
-      summary: "Raisonnement profond long horizon (1M ctx)",
-      price: "Inclus Google AI Ultra · Quota élevé",
-      claudeCompare: "vs Claude : ≈ Opus 5.5 / Fable 5.2 (tâches très dures)",
+      summary: "Rapide & léger au quotidien (1M ctx)",
+      price: "Inclus Google AI Ultra · Quota léger",
+      claudeCompare: "vs Claude : ≈ Sonnet 5.5 (~2× plus léger que Neon)",
+      rank: 30,
     },
   },
   // Google Gemini 3 / 2.5 families
@@ -55,6 +61,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "Raisonnement & multimodal 1M ctx",
       price: "Inclus Google AI Ultra · Quota moyen",
       claudeCompare: "vs Claude : niveau Sonnet/Opus (~2× plus léger qu'Opus)",
+      rank: 35,
     },
   },
   {
@@ -65,6 +72,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "Pro 1M ctx (gén. précédente)",
       price: "Inclus Google AI Ultra · Quota léger",
       claudeCompare: "vs Claude : ≈ Sonnet 4 (très économe en quota)",
+      rank: 40,
     },
   },
   {
@@ -74,6 +82,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "Ultra-rapide & très économe",
       price: "Inclus Google AI Ultra · Quota minime",
       claudeCompare: "vs Claude : ≈ Haiku 5.5",
+      rank: 60,
     },
   },
   {
@@ -84,6 +93,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "Très rapide, multimodal & 1M ctx",
       price: "Inclus Google AI Ultra · Quota léger",
       claudeCompare: "vs Claude : plus rapide & plus économe que Sonnet",
+      rank: 50,
     },
   },
   // Anthropic Claude family (Claude Ultra)
@@ -93,6 +103,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "Agents autonomes ultra-complexes (1M ctx)",
       price: "Inclus Claude Ultra · Quota très élevé (max 50% hebdo)",
       claudeCompare: "Sommet Anthropic (~2× le quota d'Opus, ≈ Gemini 4 Carbon)",
+      rank: 10,
     },
   },
   {
@@ -101,6 +112,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "Top architecture & code chirurgical (1M ctx)",
       price: "Inclus Claude Ultra · Quota élevé (sans limite 5h)",
       claudeCompare: "Référence Anthropic (≈ Gemini 4 Neon, ~2× le quota de Sonnet)",
+      rank: 20,
     },
   },
   {
@@ -109,6 +121,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "Équilibre vitesse / qualité de code (1M ctx)",
       price: "Inclus Claude Ultra · Quota moyen (sans limite 5h)",
       claudeCompare: "Quotidien Anthropic (≈ Gemini 4 Hydrogen / Argon)",
+      rank: 30,
     },
   },
   {
@@ -117,6 +130,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "Ultra-rapide & léger",
       price: "Inclus Claude Ultra · Quota minime",
       claudeCompare: "Rapide Anthropic (≈ Gemini Flash-Lite)",
+      rank: 40,
     },
   },
   // Homelab Colab & Local GPU models (OpenCode)
@@ -126,6 +140,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "Routeur auto Mac 8-bit ↔ Colab G4",
       price: "0 % quota cloud · Auto-routé",
       claudeCompare: "vs Claude : bascule auto local / Colab G4 selon charge",
+      rank: 10,
     },
   },
   {
@@ -136,6 +151,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "Colab G4 96 Go · Qwen3 Coder 80B (128K ctx)",
       price: "Inclus Google AI Ultra (~11.2 CU/h, 0 % quota)",
       claudeCompare: "vs Claude : proche Sonnet en code (préserve Claude Ultra)",
+      rank: 15,
     },
   },
   {
@@ -145,6 +161,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "Colab G4 96 Go · Qwen 2.5 72B",
       price: "Inclus Google AI Ultra (~11.2 CU/h, 0 % quota)",
       claudeCompare: "vs Claude : gros raisonnement hors quota Claude Ultra",
+      rank: 20,
     },
   },
   {
@@ -153,6 +170,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "MacBook Pro M4 Max · Qwen 27B 8-bit",
       price: "0 % quota · 0 CU (local illimité)",
       claudeCompare: "vs Claude : entre Haiku et Sonnet, 100 % privé",
+      rank: 30,
     },
   },
   {
@@ -162,6 +180,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "EVO ROCm local · Google Gemma 4 26B",
       price: "0 % quota · 0 CU (local illimité)",
       claudeCompare: "vs Claude : open-weights Google, ≈ Haiku+",
+      rank: 35,
     },
   },
   {
@@ -170,6 +189,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "MacBook Air M2 · Qwen 9B rapide",
       price: "0 % quota · 0 CU (local illimité)",
       claudeCompare: "vs Claude : exploration rapide (≈ Haiku)",
+      rank: 45,
     },
   },
   {
@@ -178,6 +198,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "Razer Blade RTX · Qwen 9B vérif",
       price: "0 % quota · 0 CU (local illimité)",
       claudeCompare: "vs Claude : contrôles rapides (≈ Haiku)",
+      rank: 50,
     },
   },
   // OpenAI / Codex
@@ -188,6 +209,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "Code & raisonnement OpenAI / Codex",
       price: "Inclus quota Codex",
       claudeCompare: "vs Claude : concurrent direct Sonnet / Opus",
+      rank: 25,
     },
   },
   // Generic Gemini fallback
@@ -197,6 +219,7 @@ const MODEL_META_RULES: readonly ModelMetaRule[] = [
       summary: "Modèle Google Gemini (1M ctx, multimodal)",
       price: "Inclus Google AI Ultra",
       claudeCompare: "vs Claude : quota très large sur Google AI Ultra",
+      rank: 45,
     },
   },
 ];
@@ -217,4 +240,8 @@ export function getModelSelectorMeta(
     }
   }
   return null;
+}
+
+export function getModelSortRank(provider: string, modelId: string, modelLabel: string): number {
+  return getModelSelectorMeta(provider, modelId, modelLabel)?.rank ?? 100;
 }

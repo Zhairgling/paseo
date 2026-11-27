@@ -1,9 +1,10 @@
 import { router } from "expo-router";
-import { Columns2, Pin } from "lucide-react-native";
+import { Columns2, MoreHorizontal, Pin } from "lucide-react-native";
 import { memo, useCallback, useMemo, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { useSessionActionsModal } from "@/components/sidebar/session-actions-modal";
 import { SidebarGroupToggleRow } from "@/components/sidebar/sidebar-group-toggle-row";
 import { SidebarSectionHeader } from "@/components/sidebar/sidebar-section-header";
 import { PressHighlight } from "@/components/ui/press-highlight";
@@ -39,6 +40,10 @@ const ThemedSplitMuted = withUnistyles(Columns2, (theme: Theme) => ({
 
 const ThemedSplitActive = withUnistyles(Columns2, (theme: Theme) => ({
   color: theme.colors.accent,
+}));
+
+const ThemedMoreMuted = withUnistyles(MoreHorizontal, (theme: Theme) => ({
+  color: theme.colors.foregroundExtraMuted,
 }));
 
 function repoNameFromCwd(cwd: string): string {
@@ -82,6 +87,8 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
 }): ReactElement | null {
   const { t } = useTranslation();
   const isCompactLayout = useIsCompactFormFactor();
+  const canSplit = !isCompactLayout;
+  const sessionActions = useSessionActionsModal({ canSplit });
   const activeAgentId = useActiveSessionAgentId();
   const secondarySplitAgentId = useSplitSessionStore(
     (state) => state.secondarySession?.agentId ?? null,
@@ -180,7 +187,6 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
     ? unpinnedAgents.slice(0, EXPANDED_MAX_VISIBLE_COUNT)
     : unpinnedAgents.slice(0, baseLimit);
   const canToggleMore = unpinnedAgents.length > baseLimit;
-  const canSplit = !isCompactLayout;
 
   return (
     <>
@@ -205,6 +211,7 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
                   onPress={handleOpenAgent}
                   onTogglePin={handleTogglePin}
                   onToggleSplit={handleToggleSplit}
+                  onOpenActions={sessionActions.openActions}
                 />
               ))}
             </View>
@@ -241,6 +248,7 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
                 onPress={handleOpenAgent}
                 onTogglePin={handleTogglePin}
                 onToggleSplit={handleToggleSplit}
+                onOpenActions={sessionActions.openActions}
               />
             ))}
             {canToggleMore ? (
@@ -253,6 +261,8 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
           </View>
         )}
       </View>
+
+      {sessionActions.modal}
     </>
   );
 });
@@ -266,6 +276,7 @@ const RecentSessionRow = memo(function RecentSessionRow({
   onPress,
   onTogglePin,
   onToggleSplit,
+  onOpenActions,
 }: {
   agent: AggregatedAgent;
   isActive: boolean;
@@ -275,6 +286,7 @@ const RecentSessionRow = memo(function RecentSessionRow({
   onPress: (agent: AggregatedAgent) => void;
   onTogglePin: (agent: AggregatedAgent) => void;
   onToggleSplit: (agent: AggregatedAgent) => void;
+  onOpenActions: (agent: AggregatedAgent) => void;
 }) {
   const modelId = useSessionStore((state) => {
     const live = state.sessions[agent.serverId]?.agents.get(agent.id);
@@ -301,6 +313,10 @@ const RecentSessionRow = memo(function RecentSessionRow({
     onToggleSplit(agent);
   }, [agent, onToggleSplit]);
 
+  const handleActionsPress = useCallback(() => {
+    onOpenActions(agent);
+  }, [agent, onOpenActions]);
+
   const kind = classifyDotKind(agent);
   const title = agent.title?.trim() || `Session ${agent.id.slice(0, 7)}`;
   const modelBadge = formatSessionModelBadge(agent.provider, modelId);
@@ -313,6 +329,7 @@ const RecentSessionRow = memo(function RecentSessionRow({
     <View style={[styles.rowOuter, isActive && styles.rowOuterActive]}>
       <PressHighlight
         onPress={handlePress}
+        onLongPress={handleActionsPress}
         style={styles.rowMainPress}
         testID={`sidebar-recent-session-${agent.id}`}
       >
@@ -364,6 +381,15 @@ const RecentSessionRow = memo(function RecentSessionRow({
         testID={`sidebar-pin-session-${agent.id}`}
       >
         {isPinned ? <ThemedPinActive size={12} /> : <ThemedPinMuted size={12} />}
+      </PressHighlight>
+      <PressHighlight
+        onPress={handleActionsPress}
+        style={styles.actionButton}
+        accessibilityRole="button"
+        accessibilityLabel="Actions de session (renommer, archiver)"
+        testID={`sidebar-actions-session-${agent.id}`}
+      >
+        <ThemedMoreMuted size={13} />
       </PressHighlight>
     </View>
   );

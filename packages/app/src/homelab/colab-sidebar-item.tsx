@@ -13,7 +13,7 @@ import type { Theme } from "@/styles/theme";
 import { UsageMeter } from "@/usage/meter";
 import { buildTeamRoute } from "@/utils/host-routes";
 
-const POLL_INTERVAL_MS = 12_000;
+const POLL_INTERVAL_MS = 5000;
 
 const ThemedCpuIcon = withUnistyles(Cpu, (theme: Theme) => ({
   color: theme.colors.foregroundMuted,
@@ -36,17 +36,32 @@ function dotStyleForHealth(health: ColabHealth) {
   return styles.dotOff;
 }
 
-function formatColabStatusShort(inFlight: number, state: string): string {
-  if (inFlight > 0) {
-    return `${inFlight} actif${inFlight > 1 ? "s" : ""}`;
+function formatColabLoadCaption(input: {
+  state: string;
+  inFlight: number;
+  parallelSlots: number;
+  freeSlots: number;
+  isQueued: boolean;
+}): string {
+  const { state, inFlight, parallelSlots, freeSlots, isQueued } = input;
+  if (state !== "ready" && state !== "running" && inFlight === 0) {
+    return state === "starting" || state === "warming" ? "démarrage..." : "en veille (0 CU/h)";
   }
-  if (state === "ready") return "prêt";
-  return state;
+  if (isQueued) {
+    return `${inFlight}/${parallelSlots} · file (+${inFlight - parallelSlots})`;
+  }
+  if (freeSlots === 0) {
+    return `${inFlight}/${parallelSlots} · plein`;
+  }
+  if (inFlight === 0) {
+    return `0/${parallelSlots} · ${freeSlots} libres`;
+  }
+  return `${inFlight}/${parallelSlots} · ${freeSlots} libre${freeSlots > 1 ? "s" : ""}`;
 }
 
 /**
- * Compact Colab G4 status + VRAM gauge + Compute Units indicator sitting in the
- * sidebar footer alongside cloud provider usage quotas. Tapping opens Équipe & GPU.
+ * Compact Colab G4 status + live parallel load gauge (in_flight / 4 slots) +
+ * Compute Units indicator sitting in the sidebar footer. Tapping opens Équipe & GPU.
  */
 export const ColabSidebarStatusItem = memo(function ColabSidebarStatusItem({
   onBeforeNavigate,
@@ -103,20 +118,17 @@ export const ColabSidebarStatusItem = memo(function ColabSidebarStatusItem({
   const health = classifyColabHealth(colab);
   const metrics = computeColabGpuMetrics(colab);
   const gpuLabel = `Colab ${metrics.gpuName}`;
-  const statusShort = formatColabStatusShort(metrics.inFlight, metrics.state);
   const cuShort = metrics.cuBalance !== null ? `${Math.round(metrics.cuBalance)} CU` : "";
-  const vramPrefix = metrics.vramEstimated ? "~" : "";
-  const gaugeCaption =
-    metrics.vramPct > 0
-      ? `${vramPrefix}${metrics.vramPct}% VRAM (${vramPrefix}${Math.round(metrics.vramUsedGb)}/${metrics.vramTotalGb}G)`
-      : `0% VRAM (veille)`;
+  const hoursShort = metrics.g4Hours !== null ? `~${Math.round(metrics.g4Hours)}h` : "";
+  const rightMeta = [cuShort, hoursShort].filter(Boolean).join(" · ");
+  const loadCaption = formatColabLoadCaption(metrics);
 
   return (
     <PressHighlight
       onPress={handlePress}
       style={styles.trigger}
       accessibilityRole="button"
-      accessibilityLabel={`${gpuLabel} ${statusShort}, ${gaugeCaption}, ${cuShort}`}
+      accessibilityLabel={`${gpuLabel}: ${loadCaption}${rightMeta ? `, ${rightMeta}` : ""}`}
       testID="sidebar-colab-status"
     >
       <View style={styles.row}>
@@ -126,16 +138,15 @@ export const ColabSidebarStatusItem = memo(function ColabSidebarStatusItem({
           {gpuLabel}
         </Text>
         <Text style={styles.summaryText} numberOfLines={1}>
-          {statusShort}
-          {cuShort ? ` · ${cuShort}` : ""}
+          {rightMeta}
         </Text>
       </View>
       <View style={styles.gaugeRow}>
         <View style={styles.gaugeTrack}>
-          <UsageMeter percent={metrics.vramPct} tone={metrics.vramTone} />
+          <UsageMeter percent={metrics.loadPct} tone={metrics.loadTone} />
         </View>
         <Text style={styles.gaugeLabel} numberOfLines={1}>
-          {gaugeCaption}
+          {loadCaption}
         </Text>
       </View>
     </PressHighlight>

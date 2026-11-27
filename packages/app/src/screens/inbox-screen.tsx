@@ -5,6 +5,7 @@ import { memo, useCallback, useMemo, useState, type ReactElement } from "react";
 import { FlatList, Text, View, type ListRenderItemInfo } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { MenuHeader } from "@/components/headers/menu-header";
+import { useSessionActionsModal } from "@/components/sidebar/session-actions-modal";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { PressHighlight } from "@/components/ui/press-highlight";
@@ -205,11 +206,17 @@ function InboxScreenContent(): ReactElement {
     [handleNewSession, refreshAll],
   );
 
+  const sessionActions = useSessionActionsModal({ canSplit: true });
+
   const renderItem = useCallback(
     ({ item }: ListRenderItemInfo<AggregatedAgent>) => (
-      <InboxSessionRow agent={item} onOpen={handleOpenAgent} />
+      <InboxSessionRow
+        agent={item}
+        onOpen={handleOpenAgent}
+        onLongPress={sessionActions.openActions}
+      />
     ),
-    [handleOpenAgent],
+    [handleOpenAgent, sessionActions.openActions],
   );
 
   return (
@@ -297,6 +304,8 @@ function InboxScreenContent(): ReactElement {
           testID="inbox-session-list"
         />
       ) : null}
+
+      {sessionActions.modal}
     </View>
   );
 }
@@ -340,13 +349,19 @@ const FilterPill = memo(function FilterPill({
 const InboxSessionRow = memo(function InboxSessionRow({
   agent,
   onOpen,
+  onLongPress,
 }: {
   agent: AggregatedAgent;
   onOpen: (agent: AggregatedAgent) => void;
+  onLongPress: (agent: AggregatedAgent) => void;
 }) {
   const handlePress = useCallback(() => {
     onOpen(agent);
   }, [agent, onOpen]);
+
+  const handleLongPress = useCallback(() => {
+    onLongPress(agent);
+  }, [agent, onLongPress]);
 
   const kind = classifySessionState(agent);
   const repo = repoNameFromCwd(agent.cwd);
@@ -359,6 +374,7 @@ const InboxSessionRow = memo(function InboxSessionRow({
   return (
     <PressHighlight
       onPress={handlePress}
+      onLongPress={handleLongPress}
       style={[styles.rowCard, kind === "permission" && styles.rowCardAlert]}
       testID={`inbox-session-row-${agent.id}`}
     >

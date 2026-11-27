@@ -1,8 +1,16 @@
 import type { HomelabGpuStatus } from "@/homelab/api";
 import type { UsageTone } from "@/usage/types";
 
+export const COLAB_PARALLEL_SLOTS = 4;
+
 export interface ColabGpuMetrics {
-  /** 0-100 VRAM/GPU utilization gauge percentage. */
+  /** 0-100 parallel inference slot load (in_flight / COLAB_PARALLEL_SLOTS). */
+  loadPct: number;
+  parallelSlots: number;
+  freeSlots: number;
+  isQueued: boolean;
+  loadTone: UsageTone;
+  /** 0-100 VRAM utilization gauge percentage. */
   vramPct: number;
   vramUsedGb: number;
   vramTotalGb: number;
@@ -47,13 +55,18 @@ function estimateTotalVramGb(colab: HomelabGpuStatus["colab"], totalGb: number):
   if (loaded.length === 0) {
     return (colab.in_flight ?? 0) > 0 ? estimateModelVramGb(colab.default_model ?? "") : 0;
   }
-  // Ollama on Colab keeps the active model resident (first or heaviest loaded model).
   let maxGb = 0;
   for (const name of loaded) {
     const est = estimateModelVramGb(name);
     if (est > maxGb) maxGb = est;
   }
   return Math.min(totalGb, maxGb);
+}
+
+function resolveLoadTone(inFlight: number, parallelSlots: number): UsageTone {
+  if (inFlight > parallelSlots) return "danger";
+  if (inFlight >= parallelSlots) return "warning";
+  return "ok";
 }
 
 function resolveVramTone(pct: number, inFlight: number): UsageTone {
@@ -79,15 +92,19 @@ function clampPct(value: number): number {
 }
 
 /**
- * Compute GPU VRAM utilization and Compute Unit reserve gauges from Colab status.
- * Uses exact `vram_used_gb` / `vram_pct` when reported by the daemon, and falls back
- * to an accurate model-footprint estimate when talking to an older daemon build.
+ * Compute Colab parallel slot load (in_flight / 4), VRAM utilization, and
+ * Compute Unit reserve gauges from Colab status.
  */
 export function computeColabGpuMetrics(colab: HomelabGpuStatus["colab"]): ColabGpuMetrics {
   const gpuKey = (colab.gpu ?? "G4").toUpperCase();
   const vramTotalGb = colab.vram_total_gb ?? GPU_VRAM_TOTAL_GB[gpuKey] ?? 96;
-  const inFlight = colab.in_flight ?? 0;
+  const inFlight = Math.max(0, colab.in_flight ?? 0);
   const state = (colab.state ?? "stopped").toLowerCase();
+
+  const parallelSlots = COLAB_PARALLEL_SLOTS;
+  const loadPct = clampPct((inFlight / parallelSlots) * 100);
+  const freeSlots = Math.max(0, parallelSlots - inFlight);
+  const isQueued = inFlight > parallelSlots;
 
   const hasExactVram = typeof colab.vram_used_gb === "number" && typeof colab.vram_pct === "number";
   const vramUsedGb = hasExactVram
@@ -103,6 +120,11 @@ export function computeColabGpuMetrics(colab: HomelabGpuStatus["colab"]): ColabG
   const cuPct = cuBalance !== null ? clampPct((cuBalance / cuReferenceCap) * 100) : null;
 
   return {
+    loadPct,
+    parallelSlots,
+    freeSlots,
+    isQueued,
+    loadTone: resolveLoadTone(inFlight, parallelSlots),
     vramPct,
     vramUsedGb: Math.round(vramUsedGb * 10) / 10,
     vramTotalGb,

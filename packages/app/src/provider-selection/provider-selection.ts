@@ -9,7 +9,7 @@ import type { DraftCommandTarget } from "@/agent-commands";
 import { i18n } from "@/i18n/i18next";
 import { compareMatchScores, scoreTextFields } from "@getpaseo/protocol/search/text-match";
 import { filterSelectableModels } from "./model-catalog";
-import { getModelSelectorMeta } from "./model-metadata";
+import { getModelSelectorMeta, getModelSortRank } from "./model-metadata";
 
 export interface ProviderSelectionModelRow {
   /**
@@ -60,7 +60,7 @@ function buildModelRows(
   providerLabel: string,
   models: AgentModelDefinition[],
 ): ProviderSelectionModelRow[] {
-  return models.map((model) => ({
+  const rows = models.map((model) => ({
     favoriteKey: buildModelRowKey(provider, model.id),
     provider,
     providerLabel,
@@ -69,6 +69,12 @@ function buildModelRows(
     description: model.description ?? model.id,
     isDefault: model.isDefault,
   }));
+  rows.sort(
+    (a, b) =>
+      getModelSortRank(a.provider, a.modelId, a.modelLabel) -
+      getModelSortRank(b.provider, b.modelId, b.modelLabel),
+  );
+  return rows;
 }
 
 function buildSyntheticDefaultRow(
