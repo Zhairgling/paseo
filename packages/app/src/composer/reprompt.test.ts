@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canRepromptText,
   formatRepromptDownloadBadge,
+  isRepromptRefusal,
   ONDEVICE_LLM_CATALOG,
   sanitizeRepromptOutput,
 } from "./reprompt";
@@ -43,6 +44,14 @@ describe("composer reprompt helpers", () => {
   });
 
   it("exposes catalog models ordered from lightweight default to quality", () => {
-    expect(ONDEVICE_LLM_CATALOG.map((m) => m.id)).toEqual(["qwen3-0.6b-int4", "qwen3-1.7b-int4"]);
+    expect(ONDEVICE_LLM_CATALOG.map((m) => m.id)).toEqual(["qwen3.5-0.8b", "qwen3-1.7b-int4"]);
+  });
+
+  it("rejects assistant refusal apologies instead of overwriting user draft", () => {
+    const draft = "euh alors en fait regarde le bug dans index";
+    const refusal =
+      "I'm sorry for not being able to assist you in that way. Could you please provide more information or clarify your request?";
+    expect(isRepromptRefusal(refusal)).toBe(true);
+    expect(sanitizeRepromptOutput(refusal, draft)).toBe(draft);
   });
 });

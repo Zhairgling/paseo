@@ -12,20 +12,35 @@ export interface OnDeviceLlmCatalogItem {
 
 export const ONDEVICE_LLM_CATALOG: readonly OnDeviceLlmCatalogItem[] = [
   {
-    id: "qwen3-0.6b-int4",
-    title: "Qwen3 0.6B INT4 (LiteRT-LM)",
-    subtitle: "Ultra-rapide · Correction fautes, ponctuation & dictée FR/EN + code",
-    expectedMb: "~328 Mo",
-    badge: "Rapide",
+    id: "qwen3.5-0.8b",
+    title: "Qwen3.5 0.8B (LiteRT-LM)",
+    subtitle: "Rapide & Recommandé · Nettoyage dictée vocale, hésitations & reformulation FR/EN",
+    expectedMb: "~464 Mo",
+    badge: "Recommandé",
   },
   {
     id: "qwen3-1.7b-int4",
     title: "Qwen3 1.7B INT4 (LiteRT-LM)",
-    subtitle: "Plus précis · Reformulation avancée & structuration de prompts",
+    subtitle: "Plus précis · Reformulation avancée & structuration de prompts longs",
     expectedMb: "~932 Mo",
     badge: "Qualité",
   },
 ] as const;
+
+const MODEL_REFUSAL_PATTERNS = [
+  /^i['’]?m sorry\b/i,
+  /^i am sorry\b/i,
+  /^i can(?:'|no)t assist\b/i,
+  /^as an ai\b/i,
+  /^could you please (?:clarify|provide more)\b/i,
+  /^je suis d[eé]sol[eé]\b/i,
+  /^en tant qu['’]ia\b/i,
+];
+
+export function isRepromptRefusal(text: string): boolean {
+  const trimmed = text.trim();
+  return MODEL_REFUSAL_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
 
 export const REPROMPT_MODE_LABELS: Record<RepromptMode, string> = {
   fix: "Dictée nettoyée",
@@ -98,6 +113,10 @@ export function sanitizeRepromptOutput(rawOutput: string, originalText: string):
     .trim();
 
   cleaned = stripOuterMatchingDelimiters(cleaned, originalText);
+
+  if (isRepromptRefusal(cleaned)) {
+    return fallback;
+  }
 
   return cleaned.length > 0 ? cleaned : fallback;
 }

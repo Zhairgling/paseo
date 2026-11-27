@@ -9,9 +9,9 @@ import {
   type OnDeviceLlmModelStatus,
   type RepromptMode,
 } from "../../modules/aju-ondevice-llm";
-import { canRepromptText, sanitizeRepromptOutput } from "../composer/reprompt";
+import { canRepromptText, isRepromptRefusal, sanitizeRepromptOutput } from "../composer/reprompt";
 
-const STORAGE_KEY = "paseo:ondevice-llm:v1";
+const STORAGE_KEY = "paseo:ondevice-llm:v2";
 
 export interface RepromptResult {
   text: string;
@@ -55,7 +55,7 @@ let listenersBound = false;
 export const useOnDeviceLlmStore = create<OnDeviceLlmState>()(
   persist(
     (set, get) => ({
-      selectedModel: "qwen3-0.6b-int4",
+      selectedModel: "qwen3.5-0.8b",
       repromptEnabled: true,
       defaultMode: "enhance",
 
@@ -180,7 +180,7 @@ export const useOnDeviceLlmStore = create<OnDeviceLlmState>()(
         if (!ready) {
           // If user already downloaded another LiteRT-LM model, prefer it over blocking;
           // otherwise download the currently selected model on demand.
-          const fallbackReady = (["qwen3-0.6b-int4", "qwen3-1.7b-int4"] as const).find((id) =>
+          const fallbackReady = (["qwen3.5-0.8b", "qwen3-1.7b-int4"] as const).find((id) =>
             Boolean(get().statuses[id]?.ready),
           );
           if (fallbackReady) {
@@ -203,6 +203,13 @@ export const useOnDeviceLlmStore = create<OnDeviceLlmState>()(
         set({ isReprompting: true, activeRepromptMode: mode, lastRepromptError: null });
         try {
           const raw = await native.reprompt(modelId, mode, text);
+          if (isRepromptRefusal(raw)) {
+            set({
+              lastRepromptError:
+                "Le modèle local n'a pas pu reformuler ce texte — ajoute quelques mots de contexte.",
+            });
+            return null;
+          }
           const cleaned = sanitizeRepromptOutput(raw, text);
           return {
             text: cleaned,

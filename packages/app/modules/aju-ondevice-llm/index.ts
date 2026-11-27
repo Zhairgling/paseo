@@ -1,6 +1,6 @@
 import { NativeModule, requireOptionalNativeModule } from "expo-modules-core";
 
-export type OnDeviceLlmModelId = "qwen3-0.6b-int4" | "qwen3-1.7b-int4";
+export type OnDeviceLlmModelId = "qwen3.5-0.8b" | "qwen3-1.7b-int4";
 
 export type RepromptMode = "fix" | "enhance";
 

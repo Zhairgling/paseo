@@ -12,22 +12,22 @@ internal data class OnDeviceLlmSpec(
 )
 
 internal object OnDeviceLlmCatalog {
-  const val MODEL_QWEN3_0_6B_INT4 = "qwen3-0.6b-int4"
+  const val MODEL_QWEN3_5_0_8B = "qwen3.5-0.8b"
   const val MODEL_QWEN3_1_7B_INT4 = "qwen3-1.7b-int4"
   const val READY_MARKER = ".ready"
 
   val MODELS: Map<String, OnDeviceLlmSpec> = listOf(
     OnDeviceLlmSpec(
-      id = MODEL_QWEN3_0_6B_INT4,
-      label = "Qwen3 0.6B INT4 · Ultra-rapide (328 Mo)",
-      fileName = "Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm",
+      id = MODEL_QWEN3_5_0_8B,
+      label = "Qwen3.5 0.8B · Rapide & Recommandé (464 Mo)",
+      fileName = "Qwen3.5-0.8B_mixed48_h1024.litertlm",
       downloadUrl =
-        "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm",
-      expectedSizeBytes = 343_500_000L,
+        "https://huggingface.co/litert-community/Qwen3.5-0.8B/resolve/main/Qwen3.5-0.8B_mixed48_h1024.litertlm",
+      expectedSizeBytes = 486_539_264L,
     ),
     OnDeviceLlmSpec(
       id = MODEL_QWEN3_1_7B_INT4,
-      label = "Qwen3 1.7B INT4 · Plus précis (932 Mo)",
+      label = "Qwen3 1.7B INT4 · Qualité (932 Mo)",
       fileName = "Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm",
       downloadUrl =
         "https://huggingface.co/litert-community/Qwen3-1.7B/resolve/main/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm",

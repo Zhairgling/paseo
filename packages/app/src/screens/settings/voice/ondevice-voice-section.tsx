@@ -578,7 +578,7 @@ export function OnDeviceVoiceSection() {
                 <OptionPill
                   key={model.id}
                   value={model.id}
-                  label={`${model.id === "qwen3-0.6b-int4" ? "Qwen3 0.6B" : "Qwen3 1.7B"} (${model.badge})`}
+                  label={`${model.id === "qwen3.5-0.8b" ? "Qwen3.5 0.8B" : "Qwen3 1.7B"} (${model.badge})`}
                   selected={llmState.selectedModel === model.id}
                   onSelect={llmState.setSelectedModel}
                 />
