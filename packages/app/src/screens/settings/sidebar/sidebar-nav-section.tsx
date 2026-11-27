@@ -270,10 +270,11 @@ function SessionModeCard(): ReactElement {
 
 /** Settings > Sidebar: one card per section. The footer's bottom line is fixed and not listed. */
 export function SidebarNavSection(): ReactElement {
+  const { settings } = useAppSettings();
   return (
     <>
       <SessionModeCard />
-      <SidebarViewPicker />
+      {settings.sidebarShowWorkspaces ? <SidebarViewPicker /> : null}
       <SidebarItemsCard section="header" />
       <SidebarItemsCard section="footer" />
     </>

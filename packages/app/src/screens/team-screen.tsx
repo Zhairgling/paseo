@@ -206,7 +206,7 @@ function TeamScreenContent(): ReactElement {
 
   return (
     <View style={styles.container}>
-      <MenuHeader title="Équipe & GPU (Atelier)" rightContent={headerRight} />
+      <MenuHeader title="Équipe & GPU (AjuCode)" rightContent={headerRight} />
 
       <TopStrip tab={tab} onSelectTab={setTab} gpu={gpu} onOpenGpu={handleOpenGpuTab} />
 

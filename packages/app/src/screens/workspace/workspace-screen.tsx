@@ -232,11 +232,13 @@ import {
 import { RenderProfile } from "@/utils/render-profiler";
 import { useWorkspaceCheckoutStatus } from "@/screens/workspace/use-workspace-checkout-status";
 import { useWorkspacePullRequestDiscovery } from "@/panels/pull-request";
-import { ArrowLeft } from "lucide-react-native";
+import { ArrowLeft, Ellipsis } from "lucide-react-native";
 import { PressHighlight } from "@/components/ui/press-highlight";
+import { useSessionActionsModal } from "@/components/sidebar/session-actions-modal";
 import { NativeSplitSessionPane } from "@/screens/workspace/native-split-pane";
 import { useSplitSessionStore } from "@/stores/split-session-store";
 import { formatSessionModelBadge } from "@/utils/session-display";
+import type { AggregatedAgent } from "@/hooks/use-aggregated-agents";
 
 const NO_SHEETS: readonly SheetTab[] = [];
 const WORKSPACE_FLOATING_PANEL_PORTAL_HOST_PREFIX = "workspace-floating-panels";
@@ -286,6 +288,58 @@ const mutedColorMapping = (theme: Theme) => ({ color: theme.colors.foregroundMut
 const ThemedBackIcon = withUnistyles(ArrowLeft, (theme: Theme) => ({
   color: theme.colors.foreground,
 }));
+const ThemedEllipsisIcon = withUnistyles(Ellipsis, (theme: Theme) => ({
+  color: theme.colors.foregroundMuted,
+}));
+
+function ActiveSessionHeaderMenu({ serverId, agentId }: { serverId: string; agentId: string }) {
+  const agent = useSessionStore((state) => state.sessions[serverId]?.agents.get(agentId) ?? null);
+  const sessionActions = useSessionActionsModal({ canSplit: true });
+
+  const handlePress = useCallback(() => {
+    if (!agent) return;
+    const aggregated: AggregatedAgent = {
+      id: agent.id,
+      serverId,
+      serverLabel: serverId,
+      title: agent.title ?? null,
+      status: agent.status,
+      backgroundWork: agent.backgroundWork,
+      turn: agent.turn,
+      lastActivityAt: agent.lastActivityAt,
+      cwd: agent.cwd,
+      workspaceId: agent.workspaceId,
+      provider: agent.provider,
+      model: agent.runtimeInfo?.model ?? agent.model ?? null,
+      pendingPermissionCount: agent.pendingPermissions.length,
+      requiresAttention: agent.requiresAttention,
+      attentionReason: agent.attentionReason,
+      attentionTimestamp: agent.attentionTimestamp,
+      archivedAt: agent.archivedAt,
+      createdAt: agent.createdAt,
+      labels: agent.labels,
+      projectPlacement: agent.projectPlacement,
+    };
+    sessionActions.openActions(aggregated);
+  }, [agent, serverId, sessionActions]);
+
+  if (!agent) return null;
+
+  return (
+    <>
+      <PressHighlight
+        onPress={handlePress}
+        style={styles.sessionMenuButton}
+        accessibilityRole="button"
+        accessibilityLabel="Actions de la conversation"
+        testID="workspace-session-actions-trigger"
+      >
+        <ThemedEllipsisIcon size={18} />
+      </PressHighlight>
+      {sessionActions.modal}
+    </>
+  );
+}
 
 function isNonAgentWorkspaceTab(tab: WorkspaceTabDescriptor | null): tab is WorkspaceTabDescriptor {
   return tab !== null && tab.kind !== "agent" && tab.kind !== "draft";
@@ -582,6 +636,7 @@ interface WorkspaceHeaderTitleBarProps {
   isSubtitleDistinct: boolean;
   currentBranchName: string | null;
   normalizedServerId: string;
+  activeAgentId: string | null;
   showWorkspaceSetup: boolean;
   importAgentDisabled: boolean;
   copyPathDisabled: boolean;
@@ -598,6 +653,7 @@ function WorkspaceHeaderTitleBar({
   isSubtitleDistinct,
   currentBranchName,
   normalizedServerId,
+  activeAgentId,
   showWorkspaceSetup,
   importAgentDisabled,
   copyPathDisabled,
@@ -625,16 +681,20 @@ function WorkspaceHeaderTitleBar({
       )}
       {actionsInBar ? null : (
         <View style={styles.compactHeaderMenuCluster}>
-          <WorkspaceHeaderMenuDesktop
-            currentBranchName={currentBranchName}
-            showWorkspaceSetup={showWorkspaceSetup}
-            importAgentDisabled={importAgentDisabled}
-            copyPathDisabled={copyPathDisabled}
-            onOpenImportSheet={onOpenImportSheet}
-            onCopyWorkspacePath={onCopyWorkspacePath}
-            onCopyBranchName={onCopyBranchName}
-            onOpenSetupTab={onOpenSetupTab}
-          />
+          {activeAgentId ? (
+            <ActiveSessionHeaderMenu serverId={normalizedServerId} agentId={activeAgentId} />
+          ) : (
+            <WorkspaceHeaderMenuDesktop
+              currentBranchName={currentBranchName}
+              showWorkspaceSetup={showWorkspaceSetup}
+              importAgentDisabled={importAgentDisabled}
+              copyPathDisabled={copyPathDisabled}
+              onOpenImportSheet={onOpenImportSheet}
+              onCopyWorkspacePath={onCopyWorkspacePath}
+              onCopyBranchName={onCopyBranchName}
+              onOpenSetupTab={onOpenSetupTab}
+            />
+          )}
         </View>
       )}
     </View>
@@ -3520,6 +3580,7 @@ function WorkspaceScreenContent({
                 isSubtitleDistinct={effectiveHeaderSubtitleDistinct}
                 currentBranchName={currentBranchName}
                 normalizedServerId={normalizedServerId}
+                activeAgentId={resolveActiveHeaderAgentId(activeTabDescriptor)}
                 showWorkspaceSetup={showWorkspaceSetup}
                 importAgentDisabled={!canOpenImportSheet}
                 copyPathDisabled={!workspaceDirectory}
@@ -3534,6 +3595,7 @@ function WorkspaceScreenContent({
         />
       ) : null,
     [
+      activeTabDescriptor,
       canOpenImportSheet,
       currentBranchName,
       effectiveHeaderSubtitle,
@@ -4278,6 +4340,13 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.medium,
     color: theme.colors.foreground,
+  },
+  sessionMenuButton: {
+    width: 30,
+    height: 30,
+    borderRadius: theme.borderRadius.md,
+    alignItems: "center",
+    justifyContent: "center",
   },
   tab: {
     paddingHorizontal: theme.spacing[3],

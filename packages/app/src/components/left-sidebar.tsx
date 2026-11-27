@@ -1,13 +1,7 @@
 import { SidebarViewSlot } from "@/plugins/sidebar-view";
+import { router } from "expo-router";
 import { useAddHost } from "@/hosts/add-host";
-import {
-  CircleGauge,
-  FolderPlus,
-  GitBranch,
-  Server,
-  Settings,
-  type LucideIcon,
-} from "lucide-react-native";
+import { GitBranch, Settings, SquarePen, type LucideIcon } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import {
   memo,
@@ -26,7 +20,6 @@ import {
   Text,
   useWindowDimensions,
   View,
-  type LayoutChangeEvent,
 } from "react-native";
 import {
   Gesture,
@@ -51,25 +44,14 @@ import {
   SIDEBAR_RESIZE_ACTIVATION_OFFSET,
   SIDEBAR_RESIZE_FAIL_OFFSET,
 } from "@/components/sidebar-resize-handle-layout";
-import { HostPicker } from "@/components/hosts/host-picker";
 import { SidebarDisplayPreferencesMenu } from "@/components/sidebar/display-preferences/menu";
 import { SidebarSeparator } from "@/components/sidebar/sidebar-separator";
 import { SidebarToastRegion } from "@/components/sidebar/sidebar-toast-region";
 import { SidebarSelectionHost } from "@/sidebar-selection";
 import { SidebarNavRows, useVisibleSidebarNavItems } from "@/components/sidebar/sidebar-nav-rows";
 import { SidebarFooterIconHighlight } from "@/components/sidebar/sidebar-footer-icon-highlight";
-import { SidebarHelpMenu } from "@/components/sidebar/sidebar-help-menu";
-import { SidebarFooterOverflowMenu } from "@/components/sidebar/sidebar-footer-overflow-menu";
-import {
-  resolveSidebarFooterLayout,
-  SIDEBAR_FOOTER_ACTIONS,
-  type SidebarFooterAction,
-} from "@/components/sidebar-footer-layout";
-import {
-  controlSizingForLayout,
-  mapLayout,
-  TOOLBAR_CONTROL_SIZES,
-} from "@/components/ui/control-geometry";
+import { mapLayout } from "@/components/ui/control-geometry";
+import { PressHighlight } from "@/components/ui/press-highlight";
 import { SidebarResizeHandle } from "@/components/sidebar-resize-handle";
 import { DensityIcon } from "@/components/ui/density-icon";
 import { SidebarSectionHeader } from "@/components/sidebar/sidebar-section-header";
@@ -93,7 +75,6 @@ import type { SidebarWorkspaceGroup } from "@/components/sidebar/sidebar-labels"
 import type { SidebarProjectIconTarget } from "@/utils/sidebar-project-row-model";
 import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
 import { type SidebarGroupMode, useSidebarViewStore } from "@/stores/sidebar-view-store";
-import { useHosts } from "@/runtime/host-runtime";
 import { PluginSidebarItem } from "@/plugins/sidebar-items";
 import { builtinSidebarNavLabelKey } from "@/sidebar-nav/model";
 import { useSidebarNavItems } from "@/sidebar-nav/use-sidebar-nav-items";
@@ -102,10 +83,10 @@ import { useOwnsWindowChromeCorner, WindowChromeSafeArea } from "@/utils/desktop
 import { useCloseAgentListGesture } from "@/mobile-panels/gestures";
 import { useLeftPanelWidth } from "@/mobile-panels/provider";
 import { MobilePanelOverlay } from "@/mobile-panels/presentation";
-import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
+import { buildNewWorkspaceRoute, buildSettingsHostSectionRoute } from "@/utils/host-routes";
 import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
 import { openSettingsFromSidebar } from "@/navigation/settings-navigation";
-import { UsageSidebarItem, UsageSidebarRoot, useUsageSummary, useOpenSidebarUsage } from "@/usage";
+import { UsageSidebarItem, UsageSidebarRoot, useUsageSummary } from "@/usage";
 import { ColabSidebarStatusItem } from "@/homelab/colab-sidebar-item";
 import { SidebarAgentListSkeleton } from "./sidebar-agent-list-skeleton";
 import { SidebarCalloutSlot } from "./sidebar-callout-slot";
@@ -302,10 +283,6 @@ export const LeftSidebar = memo(function LeftSidebar({
   );
 });
 
-function sidebarHostOptionTestID(serverId: string): string {
-  return `sidebar-host-row-${serverId}`;
-}
-
 function FooterIconButton({
   buttonRef,
   onPress,
@@ -358,59 +335,6 @@ function FooterIconButton({
   );
 }
 
-function SidebarHostPicker({
-  label,
-  onAddHost,
-  onOpenHostSettings,
-}: {
-  label: string;
-  onAddHost: () => void;
-  onOpenHostSettings: (serverId: string) => void;
-}) {
-  const hosts = useHosts();
-  const triggerRef = useRef<View | null>(null);
-  const [isOpen, setIsOpen] = useState(false);
-
-  const handleSelect = useCallback(
-    (id: string) => {
-      onOpenHostSettings(id);
-    },
-    [onOpenHostSettings],
-  );
-
-  const handleOpen = useCallback(() => setIsOpen(true), []);
-
-  return (
-    <HostPicker
-      hosts={hosts}
-      value=""
-      onSelect={handleSelect}
-      open={isOpen}
-      onOpenChange={setIsOpen}
-      anchorRef={triggerRef}
-      includeAddHost
-      onAddHost={onAddHost}
-      showActiveConnection
-      searchable
-      title={label}
-      desktopPlacement="top-start"
-      desktopMinWidth={328}
-      addHostTestID="sidebar-host-add"
-      hostOptionTestID={sidebarHostOptionTestID}
-    >
-      <FooterIconButton
-        buttonRef={triggerRef}
-        onPress={handleOpen}
-        testID="sidebar-hosts-trigger"
-        label={label}
-        icon={Server}
-        // Server's two boxes fill more of the square than the other glyphs.
-        iconSizeAdjustment={-1}
-      />
-    </HostPicker>
-  );
-}
-
 function IconTooltipContent({
   label,
   shortcutKeys,
@@ -427,11 +351,8 @@ function IconTooltipContent({
 }
 
 function SidebarFooter({
-  handleOpenProject,
   handleSettings,
   labels,
-  handleAddHost,
-  handleOpenHostSettings,
   onBeforeNavigate,
 }: {
   handleOpenProject: () => void;
@@ -447,89 +368,43 @@ function SidebarFooter({
   handleOpenHostSettings: (serverId: string) => void;
   onBeforeNavigate?: () => void;
 }) {
-  const newAgentKeys = useShortcutKeys("new-agent");
   const settingsKeys = useShortcutKeys("toggle-settings");
-  const isCompactLayout = useIsCompactFormFactor();
-  const [rowWidth, setRowWidth] = useState(0);
-  const handleRowLayout = useCallback((event: LayoutChangeEvent) => {
-    setRowWidth(event.nativeEvent.layout.width);
-  }, []);
-  const { inline, overflow } = useMemo(
-    () =>
-      resolveSidebarFooterLayout({
-        rowWidth,
-        controlSize: TOOLBAR_CONTROL_SIZES[controlSizingForLayout(isCompactLayout)],
-        rowPadding: FOOTER_ROW_PADDING,
-        actions: SIDEBAR_FOOTER_ACTIONS,
-      }),
-    [rowWidth, isCompactLayout],
-  );
-  const isInline = (action: SidebarFooterAction) => inline.includes(action);
+  const { theme } = useUnistyles();
 
-  // One line of icons: Add project, Usage, Hosts, then Help and Settings at the end. Actions that
-  // don't fit move behind a caret before Settings.
+  const handleNewConversation = useCallback(() => {
+    onBeforeNavigate?.();
+    router.push(buildNewWorkspaceRoute());
+  }, [onBeforeNavigate]);
+
+  // Clean AjuCode session-first footer: live Colab + quotas above, then "+ Nouvelle" and Settings.
   return (
     <UsageSidebarRoot>
       <View style={styles.footerContainer} testID="sidebar-footer">
         <SidebarFooterRows onBeforeNavigate={onBeforeNavigate} />
-        <View
-          style={styles.sidebarFooter}
-          onLayout={handleRowLayout}
-          testID="sidebar-footer-bottom-line"
-        >
-          {isInline("add-project") ? (
-            <FooterIconButton
-              onPress={handleOpenProject}
-              testID="sidebar-add-project"
-              label={labels.addProject}
-              icon={FolderPlus}
-              shortcutKeys={newAgentKeys}
-            />
-          ) : null}
-          {isInline("usage") ? <SidebarUsageIcon label={labels.usage} /> : null}
-          {isInline("hosts") ? (
-            <SidebarHostPicker
-              label={labels.hosts}
-              onAddHost={handleAddHost}
-              onOpenHostSettings={handleOpenHostSettings}
-            />
-          ) : null}
+        <View style={styles.sidebarFooter} testID="sidebar-footer-bottom-line">
+          <PressHighlight
+            onPress={handleNewConversation}
+            style={styles.newChatFooterButton}
+            accessibilityRole="button"
+            accessibilityLabel={labels.addProject}
+            testID="sidebar-new-conversation"
+          >
+            <SquarePen size={14} color={theme.colors.foreground} />
+            <Text style={styles.newChatFooterLabel} numberOfLines={1}>
+              Nouvelle
+            </Text>
+          </PressHighlight>
           <View style={styles.footerSpacer} />
-          {isInline("help") ? <SidebarHelpMenu /> : null}
-          {overflow.length > 0 ? (
-            <SidebarFooterOverflowMenu
-              actions={overflow}
-              labels={labels}
-              onAddProject={handleOpenProject}
-              onSettings={handleSettings}
-              onAddHost={handleAddHost}
-              onOpenHostSettings={handleOpenHostSettings}
-            />
-          ) : null}
-          {isInline("settings") ? (
-            <FooterIconButton
-              onPress={handleSettings}
-              testID="sidebar-settings"
-              label={labels.settings}
-              icon={Settings}
-              shortcutKeys={settingsKeys}
-            />
-          ) : null}
+          <FooterIconButton
+            onPress={handleSettings}
+            testID="sidebar-settings"
+            label={labels.settings}
+            icon={Settings}
+            shortcutKeys={settingsKeys}
+          />
         </View>
       </View>
     </UsageSidebarRoot>
-  );
-}
-
-function SidebarUsageIcon({ label }: { label: string }) {
-  const openUsage = useOpenSidebarUsage();
-  return (
-    <FooterIconButton
-      onPress={openUsage}
-      testID="sidebar-usage-icon"
-      label={label}
-      icon={CircleGauge}
-    />
   );
 }
 
@@ -1075,6 +950,22 @@ const styles = StyleSheet.create((theme) => ({
   // Pushes Help and Settings to the end of the icon line.
   footerSpacer: {
     flex: 1,
+  },
+  newChatFooterButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: theme.borderWidth[1],
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+  },
+  newChatFooterLabel: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
+    color: theme.colors.foreground,
   },
   // Usage and plugin rows sit above the footer's icon line, spaced like the header nav rows.
   footerRows: {

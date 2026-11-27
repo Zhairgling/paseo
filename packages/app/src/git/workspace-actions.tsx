@@ -14,5 +14,5 @@ export function WorkspaceActions({ serverId, cwd }: WorkspaceActionsProps) {
     icons: GIT_ACTION_ICONS,
   });
 
-  return <GitActionsSplitButton gitActions={gitActions} />;
+  return <GitActionsSplitButton gitActions={gitActions} menuOnly />;
 }

@@ -1324,8 +1324,8 @@ export const fr: TranslationResources = {
       searchPlaceholder: "Rechercher des hôtes…",
     },
     actions: {
-      addProject: "Ajouter un projet",
-      newWorkspace: "Nouvel espace de travail",
+      addProject: "Nouvelle conversation",
+      newWorkspace: "Nouvelle conversation",
       hosts: "Hôtes",
       settings: "Paramètres",
       closeSidebar: "Fermer la barre latérale",
@@ -1343,7 +1343,7 @@ export const fr: TranslationResources = {
       discord: "Discord",
       github: "Créer un ticket GitHub",
       whatsNew: "Nouveautés",
-      appName: "Paseo",
+      appName: "AjuCode",
     },
     sections: {
       sessions: "Historique",
@@ -1716,7 +1716,7 @@ export const fr: TranslationResources = {
     },
   },
   rootError: {
-    title: "Paseo a rencontré un problème.",
+    title: "AjuCode a rencontré un problème.",
     body: "Réessayez pour recharger l’application. Si le problème persiste, joignez les détails ci-dessous à votre signalement.",
     details: "Détails",
   },
@@ -1823,7 +1823,7 @@ export const fr: TranslationResources = {
   },
   onboarding: {
     setup: {
-      title: "Paseo",
+      title: "AjuCode",
       stepCounter: "Étape {{current}} sur {{total}}",
       skip: "Passer la configuration",
       continue: "Continuer",
@@ -1831,13 +1831,13 @@ export const fr: TranslationResources = {
       steps: {
         appearance: {
           label: "Apparence",
-          title: "Bienvenue dans Paseo",
+          title: "Bienvenue dans AjuCode",
           description: "Commençons par choisir une apparence",
         },
         providers: {
           label: "Fournisseurs",
           title: "Vos fournisseurs",
-          description: "Paseo utilise les CLI d'agents déjà installées sur cet ordinateur",
+          description: "AjuCode utilise les CLI d'agents déjà installées sur cet ordinateur",
         },
         projects: {
           label: "Projets",
@@ -1857,21 +1857,20 @@ export const fr: TranslationResources = {
         },
         orchestration: {
           label: "Orchestration",
-          title: "Laissez les agents utiliser Paseo",
-          description:
-            "Laissez vos agents créer des espaces de travail et parler à d'autres agents",
+          title: "Laissez les agents utiliser AjuCode",
+          description: "Laissez vos agents créer des sessions et parler à d'autres agents",
         },
         phone: {
           label: "Mobile",
           title: "Emportez vos agents partout",
           description:
-            "L'application mobile native complète vous permet de contrôler n'importe quel ordinateur Paseo depuis votre téléphone",
+            "L'application mobile native vous permet de contrôler votre serveur AjuCode depuis votre téléphone",
           appStore: "App Store",
           googlePlay: "Google Play",
         },
       },
     },
-    title: "Bienvenue dans Paseo",
+    title: "Bienvenue dans AjuCode",
     subtitle: "Connectez votre ordinateur pour commencer",
     actions: {
       settings: "Paramètres",
