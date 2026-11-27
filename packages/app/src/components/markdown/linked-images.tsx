@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo } from "react";
-import { Image, Text, View } from "react-native";
+import { Image, ScrollView, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { PressHighlight } from "@/components/ui/press-highlight";
 
@@ -14,14 +14,16 @@ const THUMBNAIL_HEIGHT = 82;
 
 const LinkedImageThumbnailCard = memo(function LinkedImageThumbnailCard({
   item,
+  index,
   onPress,
 }: {
   item: ResolvedLinkedMarkdownImage;
-  onPress: (uri: string) => void;
+  index: number;
+  onPress: (uri: string, index: number) => void;
 }) {
   const handlePress = useCallback(() => {
-    onPress(item.uri);
-  }, [item.uri, onPress]);
+    onPress(item.uri, index);
+  }, [index, item.uri, onPress]);
   const imageSource = useMemo(() => ({ uri: item.uri }), [item.uri]);
 
   return (
@@ -40,30 +42,55 @@ const LinkedImageThumbnailCard = memo(function LinkedImageThumbnailCard({
   );
 });
 
-/** Compact clickable image thumbnails shown inline below chat Markdown for linked screenshots/photos. */
+/** Compact clickable image thumbnails shown inline below chat Markdown (horizontally swipeable for galleries). */
 export const MarkdownLinkedImagesStrip = memo(function MarkdownLinkedImagesStrip({
   items,
   onOpenImage,
 }: {
   items: readonly ResolvedLinkedMarkdownImage[];
-  onOpenImage: (uri: string) => void;
+  onOpenImage: (uri: string, index: number) => void;
 }) {
   if (items.length === 0) return null;
+  if (items.length === 1) {
+    return (
+      <View style={styles.stripSingle} testID="markdown-linked-images-strip">
+        <LinkedImageThumbnailCard item={items[0]!} index={0} onPress={onOpenImage} />
+      </View>
+    );
+  }
   return (
-    <View style={styles.strip} testID="markdown-linked-images-strip">
-      {items.map((item) => (
-        <LinkedImageThumbnailCard key={item.source} item={item} onPress={onOpenImage} />
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.stripScroll}
+      contentContainerStyle={styles.stripContent}
+      testID="markdown-linked-images-strip"
+    >
+      {items.map((item, index) => (
+        <LinkedImageThumbnailCard
+          key={item.source}
+          item={item}
+          index={index}
+          onPress={onOpenImage}
+        />
       ))}
-    </View>
+    </ScrollView>
   );
 });
 
 const styles = StyleSheet.create((theme) => ({
-  strip: {
+  stripSingle: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: theme.spacing[2],
     marginTop: theme.spacing[1],
+  },
+  stripScroll: {
+    marginTop: theme.spacing[1],
+    flexGrow: 0,
+  },
+  stripContent: {
+    flexDirection: "row",
+    gap: theme.spacing[2],
+    paddingRight: theme.spacing[2],
   },
   card: {
     width: THUMBNAIL_WIDTH,

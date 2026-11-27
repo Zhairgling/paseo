@@ -26,6 +26,7 @@ export function ZoomableViewport({
   maxScale = DEFAULT_MAX_SCALE,
   minScale = DEFAULT_MIN_SCALE,
   onPressOutsideContent,
+  onZoomScaleChange,
   style,
   testID,
 }: ZoomableViewportProps) {
@@ -46,18 +47,28 @@ export function ZoomableViewport({
     [contentSize, fit, viewport],
   );
 
+  const publishToolbarScale = useCallback(
+    (nextScale: number) => {
+      setToolbarScale(nextScale);
+      onZoomScaleChange?.(nextScale);
+    },
+    [onZoomScaleChange],
+  );
+
   const reset = useCallback(() => {
     scale.value = FIT_TRANSFORM.scale;
     translateX.value = FIT_TRANSFORM.x;
     translateY.value = FIT_TRANSFORM.y;
-    setToolbarScale(FIT_TRANSFORM.scale);
-  }, [scale, translateX, translateY]);
+    publishToolbarScale(FIT_TRANSFORM.scale);
+  }, [publishToolbarScale, scale, translateX, translateY]);
 
   useEffect(() => reset(), [contentSize.height, contentSize.width, reset, viewport]);
 
+  const isPanEnabled = toolbarScale > minScale + 0.01;
   const panGesture = useMemo(
     () =>
       Gesture.Pan()
+        .enabled(isPanEnabled)
         .maxPointers(1)
         .onBegin(() => {
           startX.value = translateX.value;
@@ -70,7 +81,17 @@ export function ZoomableViewport({
           translateX.value = Math.min(maxX, Math.max(-maxX, startX.value + event.translationX));
           translateY.value = Math.min(maxY, Math.max(-maxY, startY.value + event.translationY));
         }),
-    [fittedContent, minScale, scale, startX, startY, translateX, translateY, viewport],
+    [
+      fittedContent,
+      isPanEnabled,
+      minScale,
+      scale,
+      startX,
+      startY,
+      translateX,
+      translateY,
+      viewport,
+    ],
   );
 
   const pinchGesture = useMemo(
@@ -114,7 +135,7 @@ export function ZoomableViewport({
         })
         .onFinalize(() => {
           pinchTouchCount.value = 0;
-          runOnJS(setToolbarScale)(scale.value);
+          runOnJS(publishToolbarScale)(scale.value);
         }),
     [
       fittedContent,
@@ -124,6 +145,7 @@ export function ZoomableViewport({
       pinchFocalY,
       pinchReady,
       pinchTouchCount,
+      publishToolbarScale,
       scale,
       startScale,
       startX,
@@ -185,9 +207,18 @@ export function ZoomableViewport({
       scale.value = next.scale;
       translateX.value = next.x;
       translateY.value = next.y;
-      setToolbarScale(next.scale);
+      publishToolbarScale(next.scale);
     },
-    [fittedContent, maxScale, minScale, scale, translateX, translateY, viewport],
+    [
+      fittedContent,
+      maxScale,
+      minScale,
+      publishToolbarScale,
+      scale,
+      translateX,
+      translateY,
+      viewport,
+    ],
   );
   const zoomIn = useCallback(() => zoomFromCenter(1.25), [zoomFromCenter]);
   const zoomOut = useCallback(() => zoomFromCenter(0.8), [zoomFromCenter]);

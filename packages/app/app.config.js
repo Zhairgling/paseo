@@ -145,6 +145,7 @@ export default {
     plugins: [
       "./modules/paseo-hardware-keyboard/app.plugin",
       "./modules/aju-ondevice-speech/app.plugin",
+      "./modules/aju-widget/app.plugin",
       "expo-router",
       withPasteInput,
       withAndroidScroll,

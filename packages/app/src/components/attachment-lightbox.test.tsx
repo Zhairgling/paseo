@@ -91,6 +91,8 @@ vi.mock("lucide-react-native", () => {
     React.createElement("span", { ...props, "data-icon": name });
   return {
     X: createIcon("X"),
+    ChevronLeft: createIcon("ChevronLeft"),
+    ChevronRight: createIcon("ChevronRight"),
   };
 });
 
@@ -258,5 +260,33 @@ describe("AttachmentLightbox", () => {
     });
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders gallery counter and switches images with navigation controls", () => {
+    const gallery: ImageLightboxSource[] = [
+      { type: "uri", uri: "blob:one" },
+      { type: "uri", uri: "blob:two" },
+      { type: "uri", uri: "blob:three" },
+    ];
+    render(
+      <AttachmentLightbox
+        source={gallery[1]!}
+        gallery={gallery}
+        initialIndex={1}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(queryByTestId("attachment-lightbox-counter")?.textContent).toBe("2 / 3");
+    const nextBtn = queryByTestId("attachment-lightbox-next");
+    expect(nextBtn).not.toBeNull();
+    click(nextBtn!);
+    expect(queryByTestId("attachment-lightbox-counter")?.textContent).toBe("3 / 3");
+    expect(queryByTestId("attachment-lightbox-next")).toBeNull();
+
+    const prevBtn = queryByTestId("attachment-lightbox-prev");
+    expect(prevBtn).not.toBeNull();
+    click(prevBtn!);
+    expect(queryByTestId("attachment-lightbox-counter")?.textContent).toBe("2 / 3");
   });
 });

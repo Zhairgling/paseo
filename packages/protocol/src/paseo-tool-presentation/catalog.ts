@@ -207,6 +207,12 @@ export const PASEO_TOOL_CATALOG = {
     context: targetAgent(),
     detail: { inputOrder: ["agentId"] },
   },
+  pin_session: {
+    label: "Pin session",
+    completedLabel: "Pinned session",
+    context: targetAgent(),
+    detail: { inputOrder: ["agentId", "pinned"] },
+  },
   list_pending_permissions: { label: "List permissions", completedLabel: "Listed permissions" },
   respond_to_permission: {
     label: "Respond to permission",

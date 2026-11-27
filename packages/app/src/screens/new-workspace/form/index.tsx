@@ -26,12 +26,7 @@ import {
 } from "../../new-workspace-picker-item";
 import type { ExistingWorktree } from "../existing-worktrees";
 import { worktreeHoldingBranch } from "../setup-model";
-import {
-  FIELD_BADGE_HEIGHT,
-  FIELD_HEIGHT,
-  FieldTrigger,
-  type FieldTriggerVariant,
-} from "./field-trigger";
+import { FIELD_BADGE_HEIGHT, FieldTrigger, type FieldTriggerVariant } from "./field-trigger";
 import {
   branchIcon,
   existingWorktreeIcon,
@@ -370,9 +365,39 @@ function useRefPicker(base: NewWorkspaceFormProps["base"], isPending: boolean) {
   };
 }
 
+function renderCompactFields(fields: {
+  projectField: ReactElement;
+  hostField: ReactElement;
+  isolationField: ReactElement | null;
+  baseField: ReactElement | null;
+  pluginItems: ReactNode;
+  launchField: ReactElement;
+  pickers: ReactElement;
+}): ReactElement {
+  return (
+    <View testID="new-workspace-ref-picker-row" style={styles.compactStack}>
+      <View style={styles.compactRow}>
+        <View style={styles.compactPrimary}>{fields.projectField}</View>
+        <View style={styles.compactSecondary}>{fields.hostField}</View>
+      </View>
+      {fields.isolationField || fields.baseField ? (
+        <View style={styles.compactRow}>
+          {fields.isolationField ? (
+            <View style={styles.compactSecondary}>{fields.isolationField}</View>
+          ) : null}
+          {fields.baseField ? <View style={styles.compactPrimary}>{fields.baseField}</View> : null}
+        </View>
+      ) : null}
+      {fields.pluginItems}
+      {fields.launchField}
+      {fields.pickers}
+    </View>
+  );
+}
+
 /**
- * The New workspace setup fields, one trigger per field, each opening its picker. Compact: a stack
- * of full-width fields with the label inside. Desktop: one meta row of badges. Either way, a field
+ * The New workspace setup fields, one trigger per field, each opening its picker. Compact: paired
+ * compact rows for fast thumb selection. Desktop: one meta row of badges. Either way, a field
  * that does not apply to the selected project is left out. Host always shows, even with one host, so
  * its Add host action keeps multi-host discoverable.
  */
@@ -598,21 +623,15 @@ export function useNewWorkspaceForm(props: NewWorkspaceFormProps): ReactElement 
   );
 
   if (isCompact) {
-    return (
-      <View testID="new-workspace-ref-picker-row" style={styles.compactStack}>
-        {projectField}
-        {hostField}
-        {isolationField}
-        {baseField}
-        {pluginItems}
-        {launchField}
-        {/* Isolation and Base come and go with the project; their rows stay reserved so the
-            stack keeps one height and nothing above the composer jumps. */}
-        {isolationField ? null : <View style={styles.reservedField} pointerEvents="none" />}
-        {baseField ? null : <View style={styles.reservedField} pointerEvents="none" />}
-        {pickers}
-      </View>
-    );
+    return renderCompactFields({
+      projectField,
+      hostField,
+      isolationField,
+      baseField,
+      pluginItems,
+      launchField,
+      pickers,
+    });
   }
 
   return (
@@ -631,12 +650,22 @@ export function useNewWorkspaceForm(props: NewWorkspaceFormProps): ReactElement 
 
 const styles = StyleSheet.create((theme) => ({
   compactStack: {
-    marginBottom: theme.spacing[4],
+    marginBottom: theme.spacing[3],
     paddingHorizontal: theme.spacing[4],
     gap: theme.spacing[2],
   },
-  reservedField: {
-    height: FIELD_HEIGHT,
+  compactRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: theme.spacing[2],
+  },
+  compactPrimary: {
+    flex: 1.35,
+    minWidth: 0,
+  },
+  compactSecondary: {
+    flex: 1,
+    minWidth: 0,
   },
   desktopRow: {
     flexDirection: "row",

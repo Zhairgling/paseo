@@ -145,7 +145,28 @@ const MarkdownPart = memo(function MarkdownPart({
         external,
       },
     );
-  const [image, setImage] = useState<ImageLightboxSource | null>(null);
+  const [lightboxState, setLightboxState] = useState<{
+    source: ImageLightboxSource;
+    index: number;
+  } | null>(null);
+  const galleryItems = useMemo<ImageLightboxSource[]>(() => {
+    const seen = new Set<string>();
+    const items: ImageLightboxSource[] = [];
+    for (const entry of linkedImages) {
+      if (seen.has(entry.uri)) continue;
+      seen.add(entry.uri);
+      items.push({ type: "uri", uri: entry.uri });
+    }
+    return items;
+  }, [linkedImages]);
+  const openUriInLightbox = useStableEvent((uri: string, preferredIndex?: number) => {
+    const foundIndex = galleryItems.findIndex((item) => item.type === "uri" && item.uri === uri);
+    const index = preferredIndex !== undefined && preferredIndex >= 0 ? preferredIndex : foundIndex;
+    setLightboxState({
+      source: { type: "uri", uri },
+      index: index >= 0 ? index : 0,
+    });
+  });
   const pressLink = useStableEvent(({ url, sourceType }: LinkPressEvent) => {
     if (external) {
       // The parser still autolinks bare http, www and email text; only https links open.
@@ -155,7 +176,7 @@ const MarkdownPart = memo(function MarkdownPart({
     }
     const resolvedLinkedUri = resolvedUriBySource.get(url);
     if (resolvedLinkedUri) {
-      setImage({ type: "uri", uri: resolvedLinkedUri });
+      openUriInLightbox(resolvedLinkedUri);
       return;
     }
     const command = commandHints && matchCommandLink(url, sourceType, commandHints.names);
@@ -182,12 +203,12 @@ const MarkdownPart = memo(function MarkdownPart({
     else actions.open(source, "preferred");
   });
   const pressImage = useStableEvent(({ url }: { url: string }) => {
-    if (url !== PENDING_MARKDOWN_IMAGE) setImage({ type: "uri", uri: url });
+    if (url !== PENDING_MARKDOWN_IMAGE) openUriInLightbox(url);
   });
-  const openLinkedImage = useStableEvent((uri: string) => {
-    setImage({ type: "uri", uri });
+  const openLinkedImage = useStableEvent((uri: string, index: number) => {
+    openUriInLightbox(uri, index);
   });
-  const closeImage = useStableEvent(() => setImage(null));
+  const closeImage = useStableEvent(() => setLightboxState(null));
   const useChatImageSizing = !external && !imageContext.filePath;
   const segments = useMemo(
     () =>
@@ -224,7 +245,14 @@ const MarkdownPart = memo(function MarkdownPart({
           <MarkdownLinkedImagesStrip items={linkedImages} onOpenImage={openLinkedImage} />
         ) : null}
       </MarkdownBlockStack>
-      {image ? <AttachmentLightbox source={image} onClose={closeImage} /> : null}
+      {lightboxState ? (
+        <AttachmentLightbox
+          source={lightboxState.source}
+          gallery={galleryItems.length > 1 ? galleryItems : undefined}
+          initialIndex={lightboxState.index}
+          onClose={closeImage}
+        />
+      ) : null}
     </MermaidStreamingContext.Provider>
   );
 });

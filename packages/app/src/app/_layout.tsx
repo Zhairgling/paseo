@@ -97,6 +97,7 @@ import {
 import { ThemedStack } from "@/navigation/themed-stack";
 import { shouldUseDesktopDaemon } from "@/desktop/daemon/desktop-daemon";
 import { useLocalAgentNotifications } from "@/homelab/local-agent-notifications";
+import { useAjuCodeWidgetSync } from "@/homelab/widget-sync";
 import { usePinnedSessionsSync } from "@/homelab/use-pinned-sessions-sync";
 import { useSessionTagsSync } from "@/homelab/use-session-tags-sync";
 import { useOnDeviceSpeechStore } from "@/stores/ondevice-speech-store";
@@ -972,6 +973,7 @@ function AppShell() {
   usePinnedSessionsSync();
   useSessionTagsSync();
   useLocalAgentNotifications();
+  useAjuCodeWidgetSync();
   useEffect(() => {
     useOnDeviceSpeechStore.getState().ensureInitialized();
     if (getDesktopHost()) void ensureOsNotificationPermission();
