@@ -110,7 +110,11 @@ export function computeCanStartDictation(input: {
   isReadyForDictation: boolean | undefined;
   disabled: boolean;
   dictationUnavailableMessage: string | null | undefined;
+  onDeviceAsrReady?: boolean;
 }): boolean {
+  if (input.onDeviceAsrReady && !input.disabled) {
+    return true;
+  }
   const socketConnected = input.client?.isConnected ?? false;
   const readyForDictation = input.isReadyForDictation ?? socketConnected;
   return (

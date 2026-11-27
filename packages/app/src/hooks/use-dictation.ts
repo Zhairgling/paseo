@@ -4,7 +4,9 @@ import { useTranslation } from "react-i18next";
 import { AudioCaptureStartError, type AudioCaptureStartFailure } from "@/audio";
 import { DictationStreamSender } from "@/dictation/dictation-stream-sender";
 import { useDictationAudioSource } from "@/hooks/use-dictation-audio-source";
+import { isOnDeviceAsrReady, useOnDeviceSpeechStore } from "@/stores/ondevice-speech-store";
 import { generateMessageId } from "@/types/stream";
+import { getOnDeviceSpeechModule } from "../../modules/aju-ondevice-speech";
 import { AttemptGuard } from "@/utils/attempt-guard";
 import {
   DURATION_TICK_MS,
@@ -68,6 +70,28 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
   useEffect(() => {
     isProcessingRef.current = isProcessing;
   }, [isProcessing]);
+
+  const onDeviceAsrReady = useOnDeviceSpeechStore(isOnDeviceAsrReady);
+  const onDeviceAsrReadyRef = useRef(onDeviceAsrReady);
+  onDeviceAsrReadyRef.current = onDeviceAsrReady;
+  const usingOnDeviceAsrRef = useRef(false);
+
+  useEffect(() => {
+    if (!onDeviceAsrReady) return;
+    const mod = getOnDeviceSpeechModule();
+    if (!mod) return;
+    void mod.preloadModel("asr-parakeet-v3").catch(() => undefined);
+    const sub = mod.addListener("onAsrPartial", (event) => {
+      if (!usingOnDeviceAsrRef.current || !isRecordingRef.current) return;
+      const next = event.text ?? "";
+      latestPartialTranscriptRef.current = next;
+      setPartialTranscript(next);
+      onPartialTranscriptRef.current?.(next, { requestId: generateMessageId() });
+    });
+    return () => {
+      sub.remove();
+    };
+  }, [onDeviceAsrReady]);
 
   // duration is used for UI only; no need to mirror into a ref.
 
@@ -231,12 +255,20 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
 
   const audio = useDictationAudioSource({
     onPcmSegment: (audioData) => {
+      if (usingOnDeviceAsrRef.current) {
+        getOnDeviceSpeechModule()?.feedAsrPcm(audioData);
+        return;
+      }
       senderRef.current?.enqueueSegment(audioData);
     },
     onError: (err) => {
       onErrorRef.current?.(err);
     },
     onInterruption: () => {
+      if (usingOnDeviceAsrRef.current) {
+        usingOnDeviceAsrRef.current = false;
+        getOnDeviceSpeechModule()?.cancelAsr();
+      }
       try {
         senderRef.current?.cancel();
       } catch {
@@ -277,6 +309,12 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
 
     let captureStarted = false;
     try {
+      const native = onDeviceAsrReadyRef.current ? getOnDeviceSpeechModule() : null;
+      const useOnDevice = Boolean(native);
+      usingOnDeviceAsrRef.current = useOnDevice;
+      if (useOnDevice && native) {
+        await native.startAsr();
+      }
       await audio.start();
       captureStarted = true;
       isRecordingRef.current = true;
@@ -284,10 +322,14 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       if (enableDuration) {
         startDurationTracking();
       }
-      if (client?.isConnected) {
+      if (!useOnDevice && client?.isConnected) {
         await startNewStream("start");
       }
     } catch (err) {
+      if (usingOnDeviceAsrRef.current) {
+        usingOnDeviceAsrRef.current = false;
+        getOnDeviceSpeechModule()?.cancelAsr();
+      }
       await audio.stop().catch(() => undefined);
       stopDurationTracking();
       isRecordingRef.current = false;
@@ -328,6 +370,10 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     setError(null);
 
     try {
+      if (usingOnDeviceAsrRef.current) {
+        usingOnDeviceAsrRef.current = false;
+        getOnDeviceSpeechModule()?.cancelAsr();
+      }
       try {
         senderRef.current?.cancel();
       } catch {
@@ -374,6 +420,15 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       setStatus("uploading");
       isRecordingRef.current = false;
       setIsRecording(false);
+
+      if (usingOnDeviceAsrRef.current) {
+        usingOnDeviceAsrRef.current = false;
+        const native = getOnDeviceSpeechModule();
+        const localTranscript = native ? await native.finishAsr() : "";
+        attemptGuardRef.current.assertCurrent(attemptId);
+        handleStreamingTranscriptionSuccess(localTranscript, generateMessageId());
+        return;
+      }
 
       const finalSeq = senderRef.current?.getFinalSeq() ?? -1;
       if (finalSeq < 0) {

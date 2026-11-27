@@ -1,7 +1,10 @@
 import * as Speech from "expo-speech";
 import { useCallback, useSyncExternalStore } from "react";
+import { resolveActiveOnDeviceTts, useOnDeviceSpeechStore } from "@/stores/ondevice-speech-store";
+import { getOnDeviceSpeechModule } from "../../modules/aju-ondevice-speech";
 
 let activeSpeakingId: string | null = null;
+let speakSequence = 0;
 const listeners = new Set<() => void>();
 
 function notify(): void {
@@ -41,10 +44,12 @@ export function stripMarkdownForSpeech(raw: string): string {
 }
 
 export function stopReadAloud(): void {
+  speakSequence += 1;
   if (activeSpeakingId !== null) {
     activeSpeakingId = null;
     notify();
   }
+  getOnDeviceSpeechModule()?.stopSpeaking();
   void Speech.stop();
 }
 
@@ -59,27 +64,47 @@ export function toggleReadAloud(id: string, rawText: string): void {
     return;
   }
 
+  speakSequence += 1;
+  const seq = speakSequence;
+  getOnDeviceSpeechModule()?.stopSpeaking();
   void Speech.stop();
   activeSpeakingId = id;
   notify();
+
+  const onDeviceConfig = resolveActiveOnDeviceTts(useOnDeviceSpeechStore.getState());
+  const native = onDeviceConfig ? getOnDeviceSpeechModule() : null;
+  if (native && onDeviceConfig) {
+    void native
+      .speak(cleaned, onDeviceConfig)
+      .catch((err) => {
+        console.warn("[read-aloud] On-device TTS failed:", err);
+      })
+      .finally(() => {
+        if (speakSequence === seq && activeSpeakingId === id) {
+          activeSpeakingId = null;
+          notify();
+        }
+      });
+    return;
+  }
 
   Speech.speak(cleaned, {
     language: "fr-FR",
     rate: 1.05,
     onDone: () => {
-      if (activeSpeakingId === id) {
+      if (speakSequence === seq && activeSpeakingId === id) {
         activeSpeakingId = null;
         notify();
       }
     },
     onStopped: () => {
-      if (activeSpeakingId === id) {
+      if (speakSequence === seq && activeSpeakingId === id) {
         activeSpeakingId = null;
         notify();
       }
     },
     onError: () => {
-      if (activeSpeakingId === id) {
+      if (speakSequence === seq && activeSpeakingId === id) {
         activeSpeakingId = null;
         notify();
       }

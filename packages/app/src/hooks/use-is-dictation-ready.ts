@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 
 import type { HostRuntimeAgentDirectoryStatus } from "@/runtime/host-runtime";
+import { isOnDeviceAsrReady, useOnDeviceSpeechStore } from "@/stores/ondevice-speech-store";
 import { useSessionStore } from "@/stores/session-store";
 import { getVoiceReadinessState } from "@/utils/server-info-capabilities";
 
@@ -35,6 +36,12 @@ export function useIsDictationReady({
       [serverId],
     ),
   );
+
+  const onDeviceAsrReady = useOnDeviceSpeechStore(isOnDeviceAsrReady);
+
+  if (onDeviceAsrReady) {
+    return true;
+  }
 
   if (!isConnected) {
     return false;

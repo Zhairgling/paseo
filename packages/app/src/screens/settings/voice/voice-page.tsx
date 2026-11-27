@@ -18,6 +18,7 @@ import { useDaemonConfig } from "@/hooks/use-daemon-config";
 import { useHostFeature } from "@/runtime/host-features";
 import { useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { SpeechProviderSheet } from "./speech-provider-sheet";
+import { OnDeviceVoiceSection } from "./ondevice-voice-section";
 import { useLocalSpeechModels } from "./use-local-speech-models";
 import {
   getSpeechSite,
@@ -87,16 +88,29 @@ export function HostVoicePage({ serverId }: { serverId: string }) {
   const dismissSheet = useCallback(() => setSheet(null), []);
 
   if (!isConnected) {
-    return <Alert size="md" variant="warning" title={t("settings.voice.offline")} />;
+    return (
+      <View testID="voice-settings">
+        <OnDeviceVoiceSection />
+        <Alert size="md" variant="warning" title={t("settings.voice.offline")} />
+      </View>
+    );
   }
   if (!supported) {
-    return <Alert size="md" variant="warning" title={t("settings.voice.updateHost")} />;
+    return (
+      <View testID="voice-settings">
+        <OnDeviceVoiceSection />
+        <Alert size="md" variant="warning" title={t("settings.voice.updateHost")} />
+      </View>
+    );
   }
   const features = config?.features;
   if (!features) {
     return (
-      <View style={styles.loading}>
-        <LoadingSpinner size="large" color={styles.spinnerColor.color} />
+      <View testID="voice-settings">
+        <OnDeviceVoiceSection />
+        <View style={styles.loading}>
+          <LoadingSpinner size="large" color={styles.spinnerColor.color} />
+        </View>
       </View>
     );
   }
@@ -118,6 +132,7 @@ export function HostVoicePage({ serverId }: { serverId: string }) {
 
   return (
     <View testID="voice-settings">
+      <OnDeviceVoiceSection />
       <SettingsSection title={t("settings.voice.dictation.title")} testID="voice-dictation">
         <SettingsCard>
           <FeatureSwitchRow

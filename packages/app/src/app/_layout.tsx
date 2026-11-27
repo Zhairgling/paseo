@@ -97,6 +97,7 @@ import { shouldUseDesktopDaemon } from "@/desktop/daemon/desktop-daemon";
 import { useLocalAgentNotifications } from "@/homelab/local-agent-notifications";
 import { usePinnedSessionsSync } from "@/homelab/use-pinned-sessions-sync";
 import { useSessionTagsSync } from "@/homelab/use-session-tags-sync";
+import { useOnDeviceSpeechStore } from "@/stores/ondevice-speech-store";
 import { AgentNavigationListener } from "@/desktop/agent-navigation";
 import { LegacyAgentSkillsMigration } from "@/agent-skills/legacy-migration";
 import { legacyFavoriteProfileMigration } from "@/agent-profiles/migration";
@@ -967,6 +968,7 @@ function AppShell() {
   useSessionTagsSync();
   useLocalAgentNotifications();
   useEffect(() => {
+    useOnDeviceSpeechStore.getState().ensureInitialized();
     if (getDesktopHost()) void ensureOsNotificationPermission();
   }, []);
   return (

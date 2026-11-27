@@ -57,6 +57,7 @@ import { DictationOverlay } from "@/components/dictation-controls";
 import { RealtimeVoiceOverlay } from "@/components/realtime-voice-overlay";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { useSessionStore } from "@/stores/session-store";
+import { isOnDeviceAsrReady, useOnDeviceSpeechStore } from "@/stores/ondevice-speech-store";
 import { useVoiceOptional } from "@/contexts/voice-context";
 import { useToast } from "@/contexts/toast-context";
 import { resolveVoiceUnavailableMessage } from "@/utils/server-info-capabilities";
@@ -1115,11 +1116,28 @@ function computeShouldShowDictationOverlay(
   return isDictating || isDictationProcessing || dictationStatus === "failed";
 }
 
+function resolveComposerDictationUnavailableMessage(
+  onDeviceAsrReady: boolean,
+  serverInfo: Parameters<typeof resolveVoiceUnavailableMessage>[0]["serverInfo"],
+): string | null {
+  if (onDeviceAsrReady) {
+    return null;
+  }
+  return resolveVoiceUnavailableMessage({
+    serverInfo,
+    mode: "dictation",
+  });
+}
+
 function computeIsDictationStartEnabled(
   isReadyForDictation: boolean | undefined,
   isConnected: boolean,
   disabled: boolean,
+  onDeviceAsrReady?: boolean,
 ): boolean {
+  if (onDeviceAsrReady && !disabled) {
+    return true;
+  }
   return (isReadyForDictation ?? isConnected) && !disabled;
 }
 
@@ -1611,10 +1629,12 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       [toast],
     );
 
-    const dictationUnavailableMessage = resolveVoiceUnavailableMessage({
+    const onDeviceAsrReady = useOnDeviceSpeechStore(isOnDeviceAsrReady);
+
+    const dictationUnavailableMessage = resolveComposerDictationUnavailableMessage(
+      onDeviceAsrReady,
       serverInfo,
-      mode: "dictation",
-    });
+    );
 
     const canStartDictation = useCallback(
       () =>
@@ -1623,16 +1643,21 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
           isReadyForDictation,
           disabled,
           dictationUnavailableMessage,
+          onDeviceAsrReady,
         }),
-      [client, disabled, dictationUnavailableMessage, isReadyForDictation],
+      [client, disabled, dictationUnavailableMessage, isReadyForDictation, onDeviceAsrReady],
     );
 
-    const canConfirmDictation = useCallback(() => client?.isConnected ?? false, [client]);
+    const canConfirmDictation = useCallback(
+      () => onDeviceAsrReady || (client?.isConnected ?? false),
+      [client, onDeviceAsrReady],
+    );
     const isConnected = client?.isConnected ?? false;
     const isDictationStartEnabled = computeIsDictationStartEnabled(
       isReadyForDictation,
       isConnected,
       disabled,
+      onDeviceAsrReady,
     );
 
     const {

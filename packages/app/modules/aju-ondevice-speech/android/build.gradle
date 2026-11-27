@@ -1,0 +1,27 @@
+apply plugin: 'com.android.library'
+
+group = 'sh.paseo.ondevice'
+version = '0.1.0'
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useExpoPublishing()
+useDefaultAndroidSdkVersions()
+
+android {
+  namespace "sh.paseo.ondevice"
+}
+
+repositories {
+  maven {
+    url = uri("${projectDir}/maven")
+  }
+}
+
+dependencies {
+  implementation "com.k2fsa.sherpa:sherpa-onnx:2.0.3"
+  implementation "org.apache.commons:commons-compress:1.27.1"
+  testImplementation "junit:junit:4.13.2"
+}
