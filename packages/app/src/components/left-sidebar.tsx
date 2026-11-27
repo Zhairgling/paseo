@@ -389,7 +389,7 @@ function SidebarFooter({
             accessibilityLabel={labels.addProject}
             testID="sidebar-new-conversation"
           >
-            <SquarePen size={14} color={theme.colors.foreground} />
+            <SquarePen size={14} color={theme.colors.accentForeground} />
             <Text style={styles.newChatFooterLabel} numberOfLines={1}>
               Nouvelle
             </Text>
@@ -955,17 +955,15 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: theme.borderRadius.md,
-    borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface2,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.accent,
   },
   newChatFooterLabel: {
     fontSize: theme.fontSize.sm,
-    fontWeight: theme.fontWeight.medium,
-    color: theme.colors.foreground,
+    fontWeight: theme.fontWeight.semibold,
+    color: theme.colors.accentForeground,
   },
   // Usage and plugin rows sit above the footer's icon line, spaced like the header nav rows.
   footerRows: {
