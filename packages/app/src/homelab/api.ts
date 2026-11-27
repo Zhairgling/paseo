@@ -12,6 +12,7 @@ export interface HomelabGpuNode {
   enabled?: boolean;
   irisDegraded?: boolean | null;
   irisScriptAvailable?: boolean;
+  tempC?: number | null;
   models?: string[];
   role: string;
 }

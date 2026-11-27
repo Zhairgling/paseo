@@ -11,11 +11,13 @@ import {
   writePinnedSessions,
 } from "./pinned-sessions-store.js";
 import { getOrCreateServerId } from "./server-id.js";
+import { readSessionTags, setSessionTag } from "./session-tags-store.js";
 
 const execFileAsync = promisify(execFile);
 
 const ROUTER_URL = process.env.PASEO_HOMELAB_ROUTER_URL ?? "http://127.0.0.1:11435/router";
 const COLAB_STATUS_URL = process.env.PASEO_HOMELAB_COLAB_URL ?? "http://127.0.0.1:11435/status";
+const COLAB_STOP_URL = process.env.PASEO_HOMELAB_COLAB_STOP_URL ?? "http://127.0.0.1:11435/stop";
 const COLAB_OLLAMA_PS_URL =
   process.env.PASEO_HOMELAB_COLAB_PS_URL ?? "http://127.0.0.1:11436/api/ps";
 const EVO_HEALTH_URL = process.env.PASEO_HOMELAB_EVO_HEALTH_URL ?? "http://127.0.0.1:18998/health";
@@ -287,6 +289,23 @@ async function loadDiskAgents(paseoHome: string): Promise<DiskAgentRecord[]> {
   return out;
 }
 
+async function probeEvoTempC(): Promise<number | null> {
+  const hwmonRoot = "/sys/class/hwmon";
+  const entries = await readdir(hwmonRoot, { withFileTypes: true }).catch(() => []);
+  let fallbackTemp: number | null = null;
+  for (const entry of entries) {
+    const dir = path.join(hwmonRoot, entry.name);
+    const name = (await readFile(path.join(dir, "name"), "utf8").catch(() => "")).trim();
+    const raw = (await readFile(path.join(dir, "temp1_input"), "utf8").catch(() => "")).trim();
+    const milli = Number.parseInt(raw, 10);
+    if (!Number.isFinite(milli) || milli <= 0) continue;
+    const tempC = Math.round(milli / 100) / 10;
+    if (name === "k10temp") return tempC;
+    if (name === "acpitz" && fallbackTemp === null) fallbackTemp = tempC;
+  }
+  return fallbackTemp;
+}
+
 async function probeGpuCluster() {
   const cached = cacheGet<Record<string, unknown>>("gpu_cluster", 3000);
   if (cached) {
@@ -294,7 +313,7 @@ async function probeGpuCluster() {
   }
 
   const hasIrisScript = await pathExists(IRIS_MODE_SCRIPT);
-  const [router, colab, colabPs, evoHealth, airModels, irisStatus] = await Promise.all([
+  const [router, colab, colabPs, evoHealth, airModels, irisStatus, evoTempC] = await Promise.all([
     fetchJson<Record<string, unknown>>(ROUTER_URL, { timeoutMs: 1600 }),
     fetchJson<Record<string, unknown>>(COLAB_STATUS_URL, { timeoutMs: 1600 }),
     fetchJson<{ models?: Array<{ size_vram?: number }> }>(COLAB_OLLAMA_PS_URL, { timeoutMs: 800 }),
@@ -306,6 +325,7 @@ async function probeGpuCluster() {
     hasIrisScript
       ? runCmd(IRIS_MODE_SCRIPT, ["status"], 2500)
       : Promise.resolve({ rc: 1, stdout: "", stderr: "" }),
+    probeEvoTempC(),
   ]);
 
   const gpuVramTotals: Record<string, number> = { G4: 96, H100: 80, A100: 80, L4: 24, T4: 15 };
@@ -352,6 +372,7 @@ async function probeGpuCluster() {
         ready: evoOnline,
         irisDegraded,
         irisScriptAvailable: hasIrisScript,
+        tempC: evoTempC,
         role: "Dev Brain 128K / Iris vocal",
       },
       air: {
@@ -757,6 +778,63 @@ export function registerHomelabRoutes(
         res.status(500).json({
           ok: false,
           error: (r.stderr || r.stdout || `code ${r.rc}`).trim(),
+        });
+      }
+    })();
+  });
+
+  app.post("/api/homelab/colab/stop", (_req: Request, res: Response) => {
+    void (async () => {
+      const result = await fetchJson<Record<string, unknown>>(COLAB_STOP_URL, {
+        method: "POST",
+        timeoutMs: 25_000,
+      });
+      if (!result) {
+        res.status(502).json({ ok: false, error: "Proxy Colab :11435 injoignable" });
+        return;
+      }
+      cacheInvalidate("gpu_cluster");
+      res.json({ ok: true, result });
+    })();
+  });
+
+  app.get("/api/homelab/tags", (_req: Request, res: Response) => {
+    void (async () => {
+      try {
+        const state = await readSessionTags(paseoHome);
+        res.json({ ok: true, serverId: localServerId, ...state });
+      } catch (err) {
+        logger.warn({ err }, "Homelab tags read failed");
+        res.status(500).json({ ok: false, error: "Impossible de lire les tags" });
+      }
+    })();
+  });
+
+  app.post("/api/homelab/tags", (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      key?: unknown;
+      serverId?: unknown;
+      agentId?: unknown;
+      tag?: unknown;
+    };
+    void (async () => {
+      try {
+        const serverId =
+          typeof body.serverId === "string" && body.serverId.trim()
+            ? body.serverId.trim()
+            : localServerId;
+        const result = await setSessionTag(paseoHome, {
+          key: typeof body.key === "string" ? body.key : undefined,
+          serverId,
+          agentId: typeof body.agentId === "string" ? body.agentId : undefined,
+          tag: typeof body.tag === "string" ? body.tag : null,
+        });
+        res.json({ ok: true, serverId: localServerId, ...result });
+      } catch (err) {
+        logger.warn({ err }, "Homelab tags update failed");
+        res.status(400).json({
+          ok: false,
+          error: err instanceof Error ? err.message : "Mise à jour du tag impossible",
         });
       }
     })();

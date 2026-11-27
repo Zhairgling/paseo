@@ -12,6 +12,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import { useActiveSessionAgentId } from "@/hooks/use-active-session-agent-id";
 import { useAggregatedAgents, type AggregatedAgent } from "@/hooks/use-aggregated-agents";
 import { buildPinnedSessionKey, usePinnedSessionsStore } from "@/stores/pinned-sessions-store";
+import { buildSessionTagKey, useSessionTagsStore } from "@/stores/session-tags-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
 import { useSplitSessionStore } from "@/stores/split-session-store";
@@ -108,6 +109,7 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
   );
   const pinnedKeys = usePinnedSessionsStore((state) => state.pinnedKeys);
   const [expanded, setExpanded] = useState(false);
+  const [hideWorkers, setHideWorkers] = useState(false);
 
   const pinnedKeySet = useMemo(() => new Set(pinnedKeys), [pinnedKeys]);
 
@@ -146,6 +148,28 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
     setExpanded((prev) => !prev);
   }, []);
 
+  const handleToggleHideWorkers = useCallback(() => {
+    setHideWorkers((prev) => !prev);
+  }, []);
+
+  const hasWorkers = useMemo(
+    () =>
+      unpinnedAgents.some((agent) =>
+        Boolean(agent.parentAgentId || agent.labels?.["paseo.parent-agent-id"]),
+      ),
+    [unpinnedAgents],
+  );
+
+  const displayUnpinned = useMemo(
+    () =>
+      hideWorkers
+        ? unpinnedAgents.filter(
+            (agent) => !agent.parentAgentId && !agent.labels?.["paseo.parent-agent-id"],
+          )
+        : unpinnedAgents,
+    [hideWorkers, unpinnedAgents],
+  );
+
   const handleOpenInbox = useCallback(() => {
     onSessionPress?.();
     router.push(buildInboxRoute());
@@ -171,9 +195,9 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
 
   const baseLimit = expandedDefault ? EXPANDED_DEFAULT_VISIBLE_COUNT : COMPACT_VISIBLE_COUNT;
   const visibleAgents = expanded
-    ? unpinnedAgents.slice(0, EXPANDED_MAX_VISIBLE_COUNT)
-    : unpinnedAgents.slice(0, baseLimit);
-  const canToggleMore = unpinnedAgents.length > baseLimit;
+    ? displayUnpinned.slice(0, EXPANDED_MAX_VISIBLE_COUNT)
+    : displayUnpinned.slice(0, baseLimit);
+  const canToggleMore = displayUnpinned.length > baseLimit;
 
   return (
     <>
@@ -209,6 +233,15 @@ export const SidebarRecentSessionsSection = memo(function SidebarRecentSessionsS
           onToggle={toggleCollapsed}
           testID="sidebar-recent-sessions-header"
         >
+          {hasWorkers ? (
+            <PressHighlight
+              onPress={handleToggleHideWorkers}
+              style={styles.viewAllButton}
+              testID="sidebar-recent-sessions-toggle-workers"
+            >
+              <Text style={styles.viewAllText}>{hideWorkers ? "Tout" : "Chats"}</Text>
+            </PressHighlight>
+          ) : null}
           <PressHighlight
             onPress={handleOpenInbox}
             style={styles.viewAllButton}
@@ -280,6 +313,9 @@ const RecentSessionRow = memo(function RecentSessionRow({
     onOpenActions(agent);
   }, [agent, onOpenActions]);
 
+  const sessionTag = useSessionTagsStore(
+    (state) => state.tagsByKey[buildSessionTagKey(agent.serverId, agent.id)] ?? null,
+  );
   const kind = classifyDotKind(agent);
   const title = agent.title?.trim() || `Session ${agent.id.slice(0, 7)}`;
   const modelBadge = formatSessionModelBadge(agent.provider, modelId);
@@ -308,6 +344,11 @@ const RecentSessionRow = memo(function RecentSessionRow({
             {title}
           </Text>
           <View style={styles.metaLine}>
+            {sessionTag ? (
+              <Text style={styles.tagMini} numberOfLines={1}>
+                #{sessionTag}
+              </Text>
+            ) : null}
             {modelBadge ? (
               <Text
                 style={[styles.modelChip, isActive && styles.modelChipActive]}
@@ -437,6 +478,13 @@ const styles = StyleSheet.create((theme) => ({
   },
   modelChipActive: {
     color: theme.colors.accent,
+  },
+  tagMini: {
+    fontSize: 10,
+    fontFamily: theme.fontFamily.mono,
+    fontWeight: theme.fontWeight.bold,
+    color: theme.colors.accent,
+    flexShrink: 0,
   },
   rowPreview: {
     flex: 1,

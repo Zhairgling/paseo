@@ -593,7 +593,7 @@ function formatSlotSummary(metrics: ReturnType<typeof computeColabGpuMetrics>): 
   return `${metrics.inFlight} / ${metrics.parallelSlots} slots (${detail})`;
 }
 
-function ColabRouterCard({ gpu, onToggleTts }: { gpu: HomelabGpuStatus; onToggleTts: () => void }) {
+function buildColabRouterDisplay(gpu: HomelabGpuStatus) {
   const colabHealth = getColabHealth(gpu.colab);
   const metrics = computeColabGpuMetrics(gpu.colab);
   const loadedModel =
@@ -606,6 +606,46 @@ function ColabRouterCard({ gpu, onToggleTts }: { gpu: HomelabGpuStatus; onToggle
       : (gpu.colab.state ?? "inconnu").toUpperCase();
   const vramPrefix = metrics.vramEstimated ? "~" : "";
   const slotSummary = formatSlotSummary(metrics);
+  const routerSummary = `Cible primaire routeur : ${gpu.router.active_primary_target ?? "—"} · Pocket TTS : ${
+    gpu.router.pocket_tts_online ? "En ligne" : "Hors ligne"
+  } (${gpu.router.tts_voice ?? "Iris"}) · ${gpu.router.tts_enabled ? "ON" : "OFF"}`;
+  return {
+    colabHealth,
+    metrics,
+    loadedModel,
+    hoursSuffix,
+    autoStopText,
+    colabStateLabel,
+    vramPrefix,
+    slotSummary,
+    routerSummary,
+    colabRunning: colabHealth !== "off",
+  };
+}
+
+function ColabRouterCard({
+  gpu,
+  stoppingColab,
+  onToggleTts,
+  onStopColab,
+}: {
+  gpu: HomelabGpuStatus;
+  stoppingColab: boolean;
+  onToggleTts: () => void;
+  onStopColab: () => void;
+}) {
+  const {
+    colabHealth,
+    metrics,
+    loadedModel,
+    hoursSuffix,
+    autoStopText,
+    colabStateLabel,
+    vramPrefix,
+    slotSummary,
+    routerSummary,
+    colabRunning,
+  } = buildColabRouterDisplay(gpu);
 
   return (
     <View style={styles.card}>
@@ -663,14 +703,19 @@ function ColabRouterCard({ gpu, onToggleTts }: { gpu: HomelabGpuStatus; onToggle
         Requêtes en cours : {metrics.inFlight}
         {autoStopText ? ` · ${autoStopText}` : ""}
       </Text>
-      <Text style={styles.kvLine}>
-        Cible primaire routeur : {gpu.router.active_primary_target ?? "—"} · Pocket TTS :{" "}
-        {gpu.router.pocket_tts_online ? "En ligne" : "Hors ligne"} ({gpu.router.tts_voice ?? "Iris"}
-        ) · {gpu.router.tts_enabled ? "ON" : "OFF"}
-      </Text>
+      <Text style={styles.kvLine}>{routerSummary}</Text>
       <View style={styles.cardActions}>
         <Button variant="secondary" size="sm" onPress={onToggleTts}>
           {gpu.router.tts_enabled ? "Couper TTS" : "Activer TTS"}
+        </Button>
+        <Button
+          variant="destructive"
+          size="sm"
+          disabled={stoppingColab || !colabRunning}
+          onPress={onStopColab}
+          testID="colab-stop-button"
+        >
+          {stoppingColab ? "Arrêt…" : "Couper Colab / Pause nuit"}
         </Button>
       </View>
     </View>
@@ -679,10 +724,14 @@ function ColabRouterCard({ gpu, onToggleTts }: { gpu: HomelabGpuStatus; onToggle
 
 function formatEvoModeLine(gpu: HomelabGpuStatus): string {
   const mode = gpu.nodes.evo.irisDegraded ? "Iris Dégradé (Dev Brain 128K)" : "Iris Normal (Vocal)";
+  const temp =
+    typeof gpu.nodes.evo.tempC === "number"
+      ? ` · Tctl ${gpu.nodes.evo.tempC.toFixed(1)}°C${gpu.nodes.evo.tempC >= 80 ? " ⚠️ CHAUD" : ""}`
+      : "";
   if (gpu.irisSwitch.switching) {
-    return `Mode : ${mode} · Bascule -> ${gpu.irisSwitch.target ?? ""}`;
+    return `Mode : ${mode}${temp} · Bascule -> ${gpu.irisSwitch.target ?? ""}`;
   }
-  return `Mode : ${mode}`;
+  return `Mode : ${mode}${temp}`;
 }
 
 function GpuTabPanel({
@@ -698,6 +747,8 @@ function GpuTabPanel({
   feedback: string;
   onFeedback: (msg: string) => void;
 }) {
+  const [stoppingColab, setStoppingColab] = useState(false);
+
   const toggleFlag = useCallback(
     async (key: "mac_enabled" | "blade_enabled" | "tts_enabled", value: boolean) => {
       try {
@@ -743,6 +794,24 @@ function GpuTabPanel({
     void toggleFlag("tts_enabled", !(gpu?.router.tts_enabled ?? false));
   }, [gpu?.router.tts_enabled, toggleFlag]);
 
+  const handleStopColab = useCallback(() => {
+    setStoppingColab(true);
+    void homelabFetchJson<{ ok?: boolean }>(target, "/api/homelab/colab/stop", {
+      method: "POST",
+    })
+      .then(() => {
+        onFeedback("VM Colab coupée (0 CU/h)");
+        onRefresh();
+        return undefined;
+      })
+      .catch((err: unknown) => {
+        onFeedback(err instanceof Error ? err.message : "Impossible de couper Colab");
+      })
+      .finally(() => {
+        setStoppingColab(false);
+      });
+  }, [onFeedback, onRefresh, target]);
+
   const handleSwitchIris = useCallback(() => {
     const nextMode = gpu?.nodes.evo.irisDegraded ? "normal" : "degraded";
     void switchIris(nextMode);
@@ -781,7 +850,12 @@ function GpuTabPanel({
         <GpuCard node={nodes.blade} actionLabel={bladeLabel} onAction={handleToggleBlade} />
       </View>
 
-      <ColabRouterCard gpu={gpu} onToggleTts={handleToggleTts} />
+      <ColabRouterCard
+        gpu={gpu}
+        stoppingColab={stoppingColab}
+        onToggleTts={handleToggleTts}
+        onStopColab={handleStopColab}
+      />
       {feedback ? <Text style={styles.feedbackText}>{feedback}</Text> : null}
     </ScrollView>
   );

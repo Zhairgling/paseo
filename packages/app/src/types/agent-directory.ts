@@ -21,4 +21,5 @@ export type AgentDirectoryEntry = Pick<
   | "projectPlacement"
 > & {
   pendingPermissionCount?: number;
+  parentAgentId?: string | null;
 };

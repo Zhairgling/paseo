@@ -1,8 +1,8 @@
 import { router } from "expo-router";
 import { useIsFocused } from "expo-router/react-navigation";
-import { Plus, RefreshCw } from "lucide-react-native";
+import { Archive, Plus, RefreshCw } from "lucide-react-native";
 import { memo, useCallback, useMemo, useState, type ReactElement } from "react";
-import { FlatList, Text, View, type ListRenderItemInfo } from "react-native";
+import { FlatList, ScrollView, Text, View, type ListRenderItemInfo } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { MenuHeader } from "@/components/headers/menu-header";
 import { useSessionActionsModal } from "@/components/sidebar/session-actions-modal";
@@ -10,12 +10,17 @@ import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { PressHighlight } from "@/components/ui/press-highlight";
 import { SearchField } from "@/components/ui/search-field";
+import { useIsCompactFormFactor } from "@/constants/layout";
+import { useToast } from "@/contexts/toast-context";
 import { useAggregatedAgents, type AggregatedAgent } from "@/hooks/use-aggregated-agents";
+import { useArchiveAgent } from "@/hooks/use-archive-agent";
+import { buildSessionTagKey, useSessionTagsStore } from "@/stores/session-tags-store";
+import { confirmDialog } from "@/utils/confirm-dialog";
 import { buildNewWorkspaceRoute } from "@/utils/host-routes";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { formatSessionModelBadge } from "@/utils/session-display";
 
-type InboxFilter = "active" | "running" | "colab" | "attention" | "all";
+type InboxFilter = "active" | "mine" | "workers" | "running" | "colab" | "attention" | "all";
 type SessionStateKind = "permission" | "running" | "attention" | "idle" | "archived";
 
 const ThemedRefreshIcon = withUnistyles(RefreshCw, (theme) => ({
@@ -23,6 +28,9 @@ const ThemedRefreshIcon = withUnistyles(RefreshCw, (theme) => ({
 }));
 const ThemedPlusIcon = withUnistyles(Plus, (theme) => ({
   color: theme.colors.accentForeground,
+}));
+const ThemedArchiveIcon = withUnistyles(Archive, (theme) => ({
+  color: theme.colors.statusWarning,
 }));
 const ThemedSpinner = withUnistyles(LoadingSpinner, (theme) => ({
   color: theme.colors.foregroundMuted,
@@ -55,6 +63,10 @@ function isAgentActive(agent: AggregatedAgent): boolean {
   return agent.status !== "closed";
 }
 
+function isWorkerAgent(agent: AggregatedAgent): boolean {
+  return Boolean(agent.parentAgentId || agent.labels?.["paseo.parent-agent-id"]);
+}
+
 function needsAgentAttention(agent: AggregatedAgent): boolean {
   return (agent.pendingPermissionCount ?? 0) > 0 || Boolean(agent.requiresAttention);
 }
@@ -83,17 +95,19 @@ function isColabAgent(agent: AggregatedAgent): boolean {
   return (agent.title ?? "").toLowerCase().includes("colab");
 }
 
-function matchesSearchQuery(agent: AggregatedAgent, query: string): boolean {
+function matchesSearchQuery(agent: AggregatedAgent, query: string, tag: string | null): boolean {
   if (!query) return true;
   const repo = repoNameFromCwd(agent.cwd);
   const modelBadge = formatSessionModelBadge(agent.provider, agent.model);
   const haystack =
-    `${agent.title ?? ""} ${repo} ${agent.cwd} ${agent.provider} ${agent.model ?? ""} ${modelBadge} ${agent.id} ${agent.serverLabel}`.toLowerCase();
+    `${agent.title ?? ""} ${repo} ${agent.cwd} ${agent.provider} ${agent.model ?? ""} ${modelBadge} ${tag ?? ""} ${agent.id} ${agent.serverLabel}`.toLowerCase();
   return haystack.includes(query);
 }
 
 function matchesInboxFilter(agent: AggregatedAgent, filter: InboxFilter): boolean {
   if (filter === "active") return isAgentActive(agent);
+  if (filter === "mine") return !agent.archivedAt && !isWorkerAgent(agent);
+  if (filter === "workers") return !agent.archivedAt && isWorkerAgent(agent);
   if (filter === "running") return !agent.archivedAt && isAgentRunning(agent);
   if (filter === "colab") return !agent.archivedAt && isColabAgent(agent);
   if (filter === "attention") return !agent.archivedAt && needsAgentAttention(agent);
@@ -135,40 +149,68 @@ export function InboxScreen(): ReactElement {
 }
 
 function InboxScreenContent(): ReactElement {
+  const isCompact = useIsCompactFormFactor();
+  const toast = useToast();
+  const { archiveAgent } = useArchiveAgent();
   const { agents, isInitialLoad, isRevalidating, refreshAll } = useAggregatedAgents({
     includeArchived: true,
   });
+  const tagsByKey = useSessionTagsStore((state) => state.tagsByKey);
+
   const [filter, setFilter] = useState<InboxFilter>("active");
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [archivingWorkers, setArchivingWorkers] = useState(false);
   const normalizedQuery = search.trim().toLowerCase();
 
-  // Tri chronologique pur par dernière activité décroissante (façon Claude Code Web / Linear Inbox)
   const sortedChronological = useMemo(() => {
     const copy = [...agents];
     copy.sort((a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime());
     return copy;
   }, [agents]);
 
-  const counts = useMemo(() => {
+  const { counts, archivableWorkers, activeTags } = useMemo(() => {
     let active = 0;
+    let mine = 0;
+    let workers = 0;
     let running = 0;
     let colab = 0;
     let attention = 0;
+    const doneWorkers: AggregatedAgent[] = [];
+    const usedTags = new Set<string>();
+
     for (const agent of sortedChronological) {
+      const tag = tagsByKey[buildSessionTagKey(agent.serverId, agent.id)];
+      if (tag && !agent.archivedAt) usedTags.add(tag);
+
       if (isAgentActive(agent)) active += 1;
-      if (!agent.archivedAt && isAgentRunning(agent)) running += 1;
-      if (!agent.archivedAt && isColabAgent(agent)) colab += 1;
-      if (!agent.archivedAt && needsAgentAttention(agent)) attention += 1;
+      if (!agent.archivedAt) {
+        if (isWorkerAgent(agent)) {
+          workers += 1;
+          if (!isAgentRunning(agent)) doneWorkers.push(agent);
+        } else {
+          mine += 1;
+        }
+        if (isAgentRunning(agent)) running += 1;
+        if (isColabAgent(agent)) colab += 1;
+        if (needsAgentAttention(agent)) attention += 1;
+      }
     }
-    return { active, running, colab, attention, all: sortedChronological.length };
-  }, [sortedChronological]);
+    return {
+      counts: { active, mine, workers, running, colab, attention, all: sortedChronological.length },
+      archivableWorkers: doneWorkers,
+      activeTags: [...usedTags].sort(),
+    };
+  }, [sortedChronological, tagsByKey]);
 
   const filteredAgents = useMemo(
     () =>
-      sortedChronological.filter(
-        (agent) => matchesInboxFilter(agent, filter) && matchesSearchQuery(agent, normalizedQuery),
-      ),
-    [filter, normalizedQuery, sortedChronological],
+      sortedChronological.filter((agent) => {
+        const tag = tagsByKey[buildSessionTagKey(agent.serverId, agent.id)] ?? null;
+        if (selectedTag && tag !== selectedTag) return false;
+        return matchesInboxFilter(agent, filter) && matchesSearchQuery(agent, normalizedQuery, tag);
+      }),
+    [filter, normalizedQuery, selectedTag, sortedChronological, tagsByKey],
   );
 
   const handleNewSession = useCallback(() => {
@@ -181,13 +223,49 @@ function InboxScreenContent(): ReactElement {
       agentId: agent.id,
       workspaceId: agent.workspaceId,
       pin: true,
+      asTab: true,
     });
   }, []);
 
   const handleShowAll = useCallback(() => {
     setFilter("all");
+    setSelectedTag(null);
     setSearch("");
   }, []);
+
+  const handleClearTag = useCallback(() => {
+    setSelectedTag(null);
+  }, []);
+
+  const handleArchiveWorkersPress = useCallback(() => {
+    if (archivableWorkers.length === 0 || archivingWorkers) return;
+    void (async () => {
+      const confirmed = await confirmDialog({
+        title: `Archiver ${archivableWorkers.length} worker${archivableWorkers.length > 1 ? "s" : ""} ?`,
+        message: "Seuls les sous-agents terminés (idle/fermés) seront archivés.",
+        confirmLabel: "Archiver",
+        cancelLabel: "Annuler",
+        destructive: true,
+      });
+      if (!confirmed) return;
+      setArchivingWorkers(true);
+      let okCount = 0;
+      await Promise.all(
+        archivableWorkers.map(async (w) => {
+          try {
+            await archiveAgent({ serverId: w.serverId, agentId: w.id });
+            okCount += 1;
+          } catch {
+            // Ignorer un échec unitaire
+          }
+        }),
+      );
+      setArchivingWorkers(false);
+      toast.show(`${okCount} worker${okCount > 1 ? "s" : ""} archivé${okCount > 1 ? "s" : ""}`, {
+        variant: "success",
+      });
+    })();
+  }, [archivableWorkers, archiveAgent, archivingWorkers, toast]);
 
   const headerRight = useMemo(
     () => (
@@ -212,33 +290,53 @@ function InboxScreenContent(): ReactElement {
     ({ item }: ListRenderItemInfo<AggregatedAgent>) => (
       <InboxSessionRow
         agent={item}
+        tag={tagsByKey[buildSessionTagKey(item.serverId, item.id)] ?? null}
         onOpen={handleOpenAgent}
         onLongPress={sessionActions.openActions}
       />
     ),
-    [handleOpenAgent, sessionActions.openActions],
+    [handleOpenAgent, sessionActions.openActions, tagsByKey],
   );
 
   return (
     <View style={styles.container}>
-      <MenuHeader title="Toutes les sessions" rightContent={headerRight} />
+      <MenuHeader
+        title={isCompact ? "Sessions" : "Toutes les sessions"}
+        rightContent={headerRight}
+      />
 
       <View style={styles.controlsBar}>
         <SearchField
           value={search}
           onChangeText={setSearch}
-          placeholder="Rechercher une session, un repo, un modèle..."
+          placeholder="Rechercher une session, un repo, un tag…"
           clearAccessibilityLabel="Effacer la recherche"
           fullWidth
           testID="inbox-search-input"
           clearTestID="inbox-search-clear"
         />
 
-        <View style={styles.filterRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
           <FilterPill
             id="active"
             label={`Actives (${counts.active})`}
             active={filter === "active"}
+            onSelect={setFilter}
+          />
+          <FilterPill
+            id="mine"
+            label={`Mes chats (${counts.mine})`}
+            active={filter === "mine"}
+            onSelect={setFilter}
+          />
+          <FilterPill
+            id="workers"
+            label={`Workers (${counts.workers})`}
+            active={filter === "workers"}
             onSelect={setFilter}
           />
           <FilterPill
@@ -268,7 +366,45 @@ function InboxScreenContent(): ReactElement {
             active={filter === "all"}
             onSelect={setFilter}
           />
-        </View>
+        </ScrollView>
+
+        {activeTags.length > 0 ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterRow}
+          >
+            <TagFilterPill
+              label="Tous les tags"
+              active={selectedTag === null}
+              onPress={handleClearTag}
+            />
+            {activeTags.map((tag) => (
+              <TagFilterPill
+                key={tag}
+                label={`# ${tag}`}
+                active={selectedTag === tag}
+                value={tag}
+                onSelectTag={setSelectedTag}
+              />
+            ))}
+          </ScrollView>
+        ) : null}
+
+        {filter === "workers" && archivableWorkers.length > 0 ? (
+          <PressHighlight
+            onPress={handleArchiveWorkersPress}
+            style={styles.bulkArchiveBtn}
+            testID="inbox-archive-workers"
+          >
+            <ThemedArchiveIcon size={14} />
+            <Text style={styles.bulkArchiveText}>
+              {archivingWorkers
+                ? "Archivage en cours…"
+                : `Archiver les workers terminés (${archivableWorkers.length})`}
+            </Text>
+          </PressHighlight>
+        ) : null}
       </View>
 
       {isInitialLoad ? (
@@ -285,7 +421,7 @@ function InboxScreenContent(): ReactElement {
               ? "Aucune session active pour le moment. Essayez le filtre « Tout » pour voir l'historique."
               : "Aucune session ne correspond à ce filtre."}
           </Text>
-          {filter !== "all" || normalizedQuery.length > 0 ? (
+          {filter !== "all" || normalizedQuery.length > 0 || selectedTag !== null ? (
             <Button variant="secondary" size="sm" onPress={handleShowAll}>
               Afficher toutes les sessions
             </Button>
@@ -309,6 +445,31 @@ function InboxScreenContent(): ReactElement {
     </View>
   );
 }
+
+const TagFilterPill = memo(function TagFilterPill({
+  label,
+  value,
+  active,
+  onPress,
+  onSelectTag,
+}: {
+  label: string;
+  value?: string;
+  active: boolean;
+  onPress?: () => void;
+  onSelectTag?: (tag: string) => void;
+}) {
+  const handlePress = useCallback(() => {
+    if (onPress) onPress();
+    else if (value && onSelectTag) onSelectTag(value);
+  }, [onPress, onSelectTag, value]);
+
+  return (
+    <PressHighlight onPress={handlePress} style={[styles.tagPill, active && styles.pillActive]}>
+      <Text style={[styles.pillText, active && styles.pillTextActive]}>{label}</Text>
+    </PressHighlight>
+  );
+});
 
 const FilterPill = memo(function FilterPill({
   id,
@@ -348,10 +509,12 @@ const FilterPill = memo(function FilterPill({
 
 const InboxSessionRow = memo(function InboxSessionRow({
   agent,
+  tag,
   onOpen,
   onLongPress,
 }: {
   agent: AggregatedAgent;
+  tag: string | null;
   onOpen: (agent: AggregatedAgent) => void;
   onLongPress: (agent: AggregatedAgent) => void;
 }) {
@@ -370,6 +533,7 @@ const InboxSessionRow = memo(function InboxSessionRow({
   const stateLabel = stateBadgeLabel(agent, kind);
   const modelBadge = formatSessionModelBadge(agent.provider, agent.model);
   const colab = isColabAgent(agent);
+  const worker = isWorkerAgent(agent);
 
   return (
     <PressHighlight
@@ -389,6 +553,18 @@ const InboxSessionRow = memo(function InboxSessionRow({
       </View>
 
       <View style={styles.rowMeta}>
+        {tag ? (
+          <View style={styles.tagBadge}>
+            <Text style={styles.tagBadgeText} numberOfLines={1}>
+              {tag}
+            </Text>
+          </View>
+        ) : null}
+        {worker ? (
+          <View style={styles.badgeNeutral}>
+            <Text style={styles.workerBadgeText}>Worker</Text>
+          </View>
+        ) : null}
         {modelBadge ? (
           <View style={[styles.stateBadge, colab ? styles.badgeAccent : styles.badgeNeutral]}>
             <Text
@@ -426,7 +602,7 @@ const styles = StyleSheet.create((theme) => ({
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: theme.spacing[1.5],
+    gap: theme.spacing[2],
   },
   newBtnInner: {
     flexDirection: "row",
@@ -443,16 +619,18 @@ const styles = StyleSheet.create((theme) => ({
       xs: theme.spacing[3],
       md: theme.spacing[6],
     },
-    paddingVertical: theme.spacing[3],
-    gap: theme.spacing[2],
+    paddingTop: theme.spacing[3],
+    paddingBottom: 10,
+    gap: 10,
     backgroundColor: theme.colors.surface1,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
   filterRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: "center",
     gap: theme.spacing[1.5],
+    paddingRight: theme.spacing[2],
   },
   pill: {
     paddingHorizontal: theme.spacing[3],
@@ -460,6 +638,14 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: theme.borderRadius.full,
     borderWidth: 1,
     borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface0,
+  },
+  tagPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: theme.borderRadius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.borderAccent,
     backgroundColor: theme.colors.surface0,
   },
   pillAlert: {
@@ -482,6 +668,23 @@ const styles = StyleSheet.create((theme) => ({
   pillTextActive: {
     color: theme.colors.accentForeground,
     fontWeight: theme.fontWeight.semibold,
+  },
+  bulkArchiveBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: theme.spacing[1.5],
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: 6,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.statusWarning,
+    backgroundColor: theme.colors.statusWarningTint,
+  },
+  bulkArchiveText: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.semibold,
+    color: theme.colors.statusWarning,
   },
   listContent: {
     paddingHorizontal: {
@@ -538,6 +741,24 @@ const styles = StyleSheet.create((theme) => ({
     flexWrap: "wrap",
     gap: theme.spacing[1.5],
     paddingLeft: 16,
+  },
+  tagBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.accent,
+  },
+  tagBadgeText: {
+    fontSize: 10.5,
+    fontWeight: theme.fontWeight.bold,
+    color: theme.colors.accentForeground,
+  },
+  workerBadgeText: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    fontSize: 10,
+    fontFamily: theme.fontFamily.mono,
+    color: theme.colors.foregroundExtraMuted,
   },
   repoBadge: {
     paddingHorizontal: 7,

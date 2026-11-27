@@ -96,6 +96,7 @@ import { ThemedStack } from "@/navigation/themed-stack";
 import { shouldUseDesktopDaemon } from "@/desktop/daemon/desktop-daemon";
 import { useLocalAgentNotifications } from "@/homelab/local-agent-notifications";
 import { usePinnedSessionsSync } from "@/homelab/use-pinned-sessions-sync";
+import { useSessionTagsSync } from "@/homelab/use-session-tags-sync";
 import { AgentNavigationListener } from "@/desktop/agent-navigation";
 import { LegacyAgentSkillsMigration } from "@/agent-skills/legacy-migration";
 import { legacyFavoriteProfileMigration } from "@/agent-profiles/migration";
@@ -963,6 +964,7 @@ function WorkspaceRouteNavigationBridge() {
 
 function AppShell() {
   usePinnedSessionsSync();
+  useSessionTagsSync();
   useLocalAgentNotifications();
   useEffect(() => {
     if (getDesktopHost()) void ensureOsNotificationPermission();
