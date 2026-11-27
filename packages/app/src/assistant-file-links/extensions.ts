@@ -1,6 +1,27 @@
+export const ASSISTANT_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set([
+  "avif",
+  "bmp",
+  "gif",
+  "jpeg",
+  "jpg",
+  "png",
+  "webp",
+]);
+
+export function isImageFilePathOrUrl(value: string): boolean {
+  const stripped = value
+    .trim()
+    .replace(/[?#].*$/, "")
+    .toLowerCase();
+  const match = /\.([a-z0-9]+)$/.exec(stripped);
+  return Boolean(match?.[1] && ASSISTANT_IMAGE_EXTENSIONS.has(match[1]));
+}
+
 export const ASSISTANT_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
   "astro",
+  "avif",
   "bash",
+  "bmp",
   "c",
   "cc",
   "cjs",
@@ -11,6 +32,7 @@ export const ASSISTANT_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
   "cxx",
   "env",
   "fish",
+  "gif",
   "go",
   "gql",
   "gradle",
@@ -21,6 +43,8 @@ export const ASSISTANT_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
   "html",
   "ini",
   "java",
+  "jpeg",
+  "jpg",
   "js",
   "json",
   "jsonc",
@@ -35,6 +59,7 @@ export const ASSISTANT_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
   "mjs",
   "mts",
   "php",
+  "png",
   "proto",
   "py",
   "rb",
@@ -50,6 +75,7 @@ export const ASSISTANT_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
   "tsx",
   "txt",
   "vue",
+  "webp",
   "xml",
   "yaml",
   "yml",

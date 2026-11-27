@@ -2,7 +2,8 @@
 import type { ReactNode } from "react";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { Image } from "react-native";
 import type { FileReadResult } from "@getpaseo/client/internal/daemon-client";
 import { __setAttachmentStoreForTests } from "@/attachments/store";
 import type { AttachmentStore } from "@/attachments/types";
@@ -100,4 +101,32 @@ it("shows the alt text of a file image in Markdown that belongs to no host", asy
   await waitFor(() =>
     expect(result.current.markdown.replace(PENDING_MARKDOWN_IMAGE, "pending")).toBe("Chart"),
   );
+});
+
+it("resolves linked image previews for chat thumbnails and skips duplicate inline images", async () => {
+  const getSizeSpy = vi
+    .spyOn(Image, "getSize")
+    .mockImplementation((_uri, onSuccess) => onSuccess(120, 90));
+  try {
+    const files = createHostFiles();
+    const { result } = renderMarkdownSource(
+      "![Inline](/tmp/inline.png) Voir [Capture](/tmp/shot.png) et `/tmp/extra.webp`.",
+      { serverId: "srv_test", workspaceRoot: "/repo", client: files },
+    );
+
+    await waitFor(() =>
+      expect(result.current.linkedImages).toEqual([
+        { source: "/tmp/shot.png", label: "Capture", uri: "blob:chart" },
+        { source: "/tmp/extra.webp", label: "extra.webp", uri: "blob:chart" },
+      ]),
+    );
+    expect(result.current.resolvedUriBySource.get("/tmp/shot.png")).toBe("blob:chart");
+    expect(files.reads).toEqual([
+      { cwd: "/", path: "/tmp/inline.png" },
+      { cwd: "/", path: "/tmp/shot.png" },
+      { cwd: "/", path: "/tmp/extra.webp" },
+    ]);
+  } finally {
+    getSizeSpy.mockRestore();
+  }
 });

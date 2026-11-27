@@ -22,6 +22,7 @@ import type { Theme } from "@/styles/theme";
 import { isWeb } from "@/constants/platform";
 import { density, resolveDensity } from "@/styles/density";
 import { MarkdownBlockStack } from "./block-stack";
+import { MarkdownLinkedImagesStrip } from "./linked-images";
 import { WEB_RENDERERS } from "./renderers";
 import { createMarkdownStyles } from "./styles";
 import { PENDING_MARKDOWN_IMAGE } from "./source";
@@ -37,20 +38,24 @@ const EXTERNAL_MD4C_FLAGS = { ...MD4C_FLAGS, hardSoftBreaks: false };
 
 // Reading the breakpoint here makes Unistyles restyle the text when the layout crosses it.
 const markdownStyle =
-  (compact: boolean, muted = false) =>
+  (compact: boolean, muted = false, chatImages = false) =>
   (theme: Theme, rt: { breakpoint?: string }) =>
     createMarkdownStyles(theme, {
       compact,
       muted,
+      chatImages,
       blockGap: resolveDensity(rt, density.blockGap),
     });
 const regularStyle = markdownStyle(false);
+const regularChatStyle = markdownStyle(false, false, true);
 const compactStyle = markdownStyle(true);
+const compactChatStyle = markdownStyle(true, false, true);
 const compactMutedStyle = markdownStyle(true, true);
 
-function pickMarkdownStyle(compact: boolean, muted: boolean) {
-  if (!compact) return regularStyle;
-  return muted ? compactMutedStyle : compactStyle;
+function pickMarkdownStyle(compact: boolean, muted: boolean, chatImages: boolean) {
+  if (!compact) return chatImages ? regularChatStyle : regularStyle;
+  if (muted) return compactMutedStyle;
+  return chatImages ? compactChatStyle : compactStyle;
 }
 
 export interface MarkdownRendererProps extends MarkdownImageContext {
@@ -124,27 +129,33 @@ const MarkdownPart = memo(function MarkdownPart({
     (environment.client?.readFile
       ? { readFile: environment.client.readFile.bind(environment.client) }
       : undefined);
-  const { markdown, imageSources, linkRecognition, linkSource } = useMarkdownSource(
-    text,
-    {
-      workspaceRoot: environment.workspaceRoot,
-      serverId: environment.serverId,
-      ...imageContext,
-      client,
-    },
-    {
-      commandNames: commandHints?.names,
-      forgeReferencePattern: forgeShorthand?.pattern,
-      knownSessionTokensKey: matchedSessionTokensKey,
-      external,
-    },
-  );
+  const { markdown, imageSources, linkedImages, resolvedUriBySource, linkRecognition, linkSource } =
+    useMarkdownSource(
+      text,
+      {
+        workspaceRoot: environment.workspaceRoot,
+        serverId: environment.serverId,
+        ...imageContext,
+        client,
+      },
+      {
+        commandNames: commandHints?.names,
+        forgeReferencePattern: forgeShorthand?.pattern,
+        knownSessionTokensKey: matchedSessionTokensKey,
+        external,
+      },
+    );
   const [image, setImage] = useState<ImageLightboxSource | null>(null);
   const pressLink = useStableEvent(({ url, sourceType }: LinkPressEvent) => {
     if (external) {
       // The parser still autolinks bare http, www and email text; only https links open.
       const safe = pluginOverviewUrl(url);
       if (safe) void openExternalUrl(safe);
+      return;
+    }
+    const resolvedLinkedUri = resolvedUriBySource.get(url);
+    if (resolvedLinkedUri) {
+      setImage({ type: "uri", uri: resolvedLinkedUri });
       return;
     }
     const command = commandHints && matchCommandLink(url, sourceType, commandHints.names);
@@ -173,7 +184,11 @@ const MarkdownPart = memo(function MarkdownPart({
   const pressImage = useStableEvent(({ url }: { url: string }) => {
     if (url !== PENDING_MARKDOWN_IMAGE) setImage({ type: "uri", uri: url });
   });
+  const openLinkedImage = useStableEvent((uri: string) => {
+    setImage({ type: "uri", uri });
+  });
   const closeImage = useStableEvent(() => setImage(null));
+  const useChatImageSizing = !external && !imageContext.filePath;
   const segments = useMemo(
     () =>
       isWeb ? [{ kind: "markdown", id: "0", source: markdown }] : splitMermaidFences(markdown),
@@ -189,7 +204,7 @@ const MarkdownPart = memo(function MarkdownPart({
             <ThemedMarkdown
               key={`${segment.kind}:${segment.id}`}
               markdown={segment.source}
-              uniProps={pickMarkdownStyle(compact, muted)}
+              uniProps={pickMarkdownStyle(compact, muted, useChatImageSizing)}
               flavor="github"
               selectable={selectable}
               md4cFlags={external ? EXTERNAL_MD4C_FLAGS : MD4C_FLAGS}
@@ -205,6 +220,9 @@ const MarkdownPart = memo(function MarkdownPart({
             />
           ),
         )}
+        {!external ? (
+          <MarkdownLinkedImagesStrip items={linkedImages} onOpenImage={openLinkedImage} />
+        ) : null}
       </MarkdownBlockStack>
       {image ? <AttachmentLightbox source={image} onClose={closeImage} /> : null}
     </MermaidStreamingContext.Provider>

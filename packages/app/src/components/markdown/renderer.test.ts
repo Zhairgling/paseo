@@ -1185,3 +1185,45 @@ describe("session references in markdown", () => {
     expect("paseo://h/srv_1/agent/1a8385c".match(linkRecognition.text)).toBeNull();
   });
 });
+
+describe("linked image references and chat image sizing", () => {
+  it("extracts linked images once from links, inline code and prose without duplicating inline images or code blocks", () => {
+    const source = [
+      "![Déjà affiché](file:///tmp/inline.png)",
+      "Voir [v6_fixed_popover.png](file:///tmp/v6_fixed_popover.png) et `/tmp/shot.jpg`.",
+      "Chemin brut /home/julienc/shots/photo.webp et https://example.com/a.gif?w=10.",
+      "```md",
+      "[Ignoré](file:///tmp/in-fence.png)",
+      "```",
+      "[Doc](docs/readme.md)",
+      "[doublon](file:///tmp/inline.png)",
+    ].join("\n");
+
+    const prepared = prepareMarkdownSource(source, "/repo");
+
+    expect(prepared.linkedImages).toEqual([
+      { source: "file:///tmp/v6_fixed_popover.png", label: "v6_fixed_popover.png" },
+      { source: "/tmp/shot.jpg", label: "shot.jpg" },
+      { source: "/home/julienc/shots/photo.webp", label: "photo.webp" },
+      { source: "https://example.com/a.gif?w=10", label: "a.gif" },
+    ]);
+  });
+
+  it("skips linked image extraction in external markdown", () => {
+    const prepared = prepareMarkdownSource("[Photo](https://example.com/photo.png)", undefined, {
+      external: true,
+    });
+    expect(prepared.linkedImages).toEqual([]);
+  });
+
+  it("uses compact thumbnail height for chat images while keeping 320px for markdown files", () => {
+    expect(createMarkdownStyles(darkTheme, { blockGap: 16 }).markdownStyle.image).toMatchObject({
+      height: 320,
+    });
+    expect(
+      createMarkdownStyles(darkTheme, { blockGap: 16, chatImages: true }).markdownStyle.image,
+    ).toMatchObject({
+      height: 180,
+    });
+  });
+});

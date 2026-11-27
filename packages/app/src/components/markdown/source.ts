@@ -1,6 +1,6 @@
 import { pluginOverviewUrl } from "@getpaseo/protocol/plugin-overview";
 import { classifyAssistantFileLink } from "@/assistant-file-links";
-import { ASSISTANT_FILE_EXTENSIONS } from "@/assistant-file-links/extensions";
+import { ASSISTANT_FILE_EXTENSIONS, isImageFilePathOrUrl } from "@/assistant-file-links/extensions";
 import { normalizeMarkdownHtml } from "./html";
 import { gfmTable } from "micromark-extension-gfm-table";
 import { gfmTableFromMarkdown } from "mdast-util-gfm-table";
@@ -173,6 +173,111 @@ export interface MarkdownImage {
   end: number;
 }
 
+export interface LinkedMarkdownImage {
+  source: string;
+  label: string;
+}
+
+const IMAGE_EXTENSION_HINT = /\.(?:avif|bmp|gif|jpe?g|png|webp)\b/i;
+
+function extractImageLabel(source: string): string {
+  const withoutFragment = source
+    .trim()
+    .replace(/[?#].*$/, "")
+    .replace(/[\\/]+$/, "");
+  const lastSlash = Math.max(withoutFragment.lastIndexOf("/"), withoutFragment.lastIndexOf("\\"));
+  const segment = lastSlash >= 0 ? withoutFragment.slice(lastSlash + 1) : withoutFragment;
+  try {
+    return decodeURIComponent(segment) || segment;
+  } catch {
+    return segment;
+  }
+}
+
+interface CollectLinkedImageArgs {
+  definitions: ReadonlyMap<string, { url: string; title?: string | null }>;
+  isImageLinkWrapper: (node: Nodes) => boolean;
+  textMatcher: RegExp;
+  workspaceRoot?: string;
+  out: LinkedMarkdownImage[];
+}
+
+function collectLinkNodeImage(node: Nodes, args: CollectLinkedImageArgs): boolean {
+  if (node.type !== "link" && node.type !== "linkReference") return false;
+  if (args.isImageLinkWrapper(node)) return true;
+  const target = node.type === "link" ? node : args.definitions.get(node.identifier);
+  if (target?.url && isImageFilePathOrUrl(target.url)) {
+    args.out.push({
+      source: target.url,
+      label: extractMdastPlainText(node).trim() || extractImageLabel(target.url),
+    });
+  }
+  return true;
+}
+
+function collectInlineCodeNodeImage(node: Nodes, args: CollectLinkedImageArgs): void {
+  if (node.type !== "inlineCode" || !isImageFilePathOrUrl(node.value)) return;
+  const isExplicitPathOrUrl =
+    /^(?:https?:|file:|[~/]|[A-Za-z]:[\\/]|\.{1,2}[\\/])/i.test(node.value) ||
+    Boolean(args.workspaceRoot);
+  if (isExplicitPathOrUrl) {
+    args.out.push({ source: node.value, label: extractImageLabel(node.value) });
+  }
+}
+
+function collectTextNodeImages(node: Nodes, args: CollectLinkedImageArgs): void {
+  if (node.type !== "text" || !IMAGE_EXTENSION_HINT.test(node.value)) return;
+  const matcher = new RegExp(args.textMatcher.source, args.textMatcher.flags);
+  for (const match of node.value.matchAll(matcher)) {
+    const candidate = match[0];
+    if (candidate && isImageFilePathOrUrl(candidate)) {
+      args.out.push({ source: candidate, label: extractImageLabel(candidate) });
+    }
+  }
+}
+
+function collectLinkedImagesFromNode(
+  node: Nodes,
+  args: CollectLinkedImageArgs,
+  insideLink = false,
+): void {
+  if (collectLinkNodeImage(node, args)) return;
+  if (!insideLink) {
+    collectInlineCodeNodeImage(node, args);
+    collectTextNodeImages(node, args);
+  }
+  if (!("children" in node)) return;
+  const nextInsideLink = insideLink || node.type === "link" || node.type === "linkReference";
+  for (const child of node.children) {
+    collectLinkedImagesFromNode(child, args, nextInsideLink);
+  }
+}
+
+function extractMdastPlainText(node: Nodes): string {
+  if ("value" in node && typeof node.value === "string") {
+    return node.value;
+  }
+  if ("children" in node) {
+    return node.children.map(extractMdastPlainText).join("");
+  }
+  return "";
+}
+
+function dedupeLinkedImages(
+  raw: readonly LinkedMarkdownImage[],
+  inlineImages: readonly MarkdownImage[],
+): LinkedMarkdownImage[] {
+  if (raw.length === 0) return [];
+  const seen = new Set(inlineImages.map((img) => img.source));
+  const result: LinkedMarkdownImage[] = [];
+  for (const item of raw) {
+    if (seen.has(item.source)) continue;
+    seen.add(item.source);
+    result.push(item);
+  }
+  return result;
+}
+
 function workspaceHoverTitle(link: Link, markup: string, workspaceRoot?: string): string | null {
   if (link.title !== null || !workspaceRoot || !link.url.startsWith(`${workspaceRoot}/`))
     return null;
@@ -217,6 +322,8 @@ export function prepareMarkdownSource(
         options.knownSessionTokens,
       );
   const edits: { start: number; end: number; text: string }[] = [];
+  const rawLinkedImages: LinkedMarkdownImage[] = [];
+  const hasLinkedImageCandidate = !external && IMAGE_EXTENSION_HINT.test(source);
   if (
     !source.includes("![") &&
     !source.includes("||") &&
@@ -226,9 +333,10 @@ export function prepareMarkdownSource(
       source,
     ) &&
     !(workspaceRoot && source.includes("](")) &&
-    !(external && /\]|<[a-z]+:/i.test(source))
+    !(external && /\]|<[a-z]+:/i.test(source)) &&
+    !hasLinkedImageCandidate
   ) {
-    return { images, ...metadata, render: () => source };
+    return { images, linkedImages: rawLinkedImages, ...metadata, render: () => source };
   }
 
   const definitions = new Map<string, { url: string; title?: string | null }>();
@@ -367,8 +475,19 @@ export function prepareMarkdownSource(
       node.children.forEach((child, index) => visit(child, node.children[index - 1]));
   }
   visit(getTree());
+  if (!external) {
+    collectLinkedImagesFromNode(getTree(), {
+      definitions,
+      isImageLinkWrapper: (node) =>
+        "children" in node && isImageLike(node as unknown as PhrasingContent),
+      textMatcher: metadata.linkRecognition.text,
+      workspaceRoot,
+      out: rawLinkedImages,
+    });
+  }
   return {
     images,
+    linkedImages: dedupeLinkedImages(rawLinkedImages, images),
     ...metadata,
     render(
       urls: ReadonlyMap<string, string> = new Map(),

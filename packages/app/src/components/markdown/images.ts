@@ -16,6 +16,7 @@ import type { AttachmentMetadata } from "@/attachments/types";
 import { resolveMarkdownPreviewImageSource } from "./image-source";
 import { prepareMarkdownSource } from "./source";
 import { decodeMarkdownImage, getMarkdownImageStatus } from "./image-decoding";
+import type { ResolvedLinkedMarkdownImage } from "./linked-images";
 
 const urls = createAssistantImageAcquisitionCache<{ uri: string; attachment: AttachmentMetadata }>({
   capacity: 500,
@@ -70,7 +71,10 @@ export function useMarkdownSource(
       external,
     ],
   );
-  const sources = [...new Set(prepared.images.map((image) => image.source))];
+  const inlineSources = prepared.images.map((image) => image.source);
+  const sources = [
+    ...new Set([...inlineSources, ...prepared.linkedImages.map((img) => img.source)]),
+  ];
   const acquisitions = sources.map((source) => {
     const resolved = resolveMarkdownPreviewImageSource({
       source,
@@ -153,13 +157,31 @@ export function useMarkdownSource(
     }),
   );
   const unavailableImages = new Set(
-    sources.filter((_source, index) => statuses[index] === "unavailable"),
+    inlineSources.filter((source) => statuses[sources.indexOf(source)] === "unavailable"),
   );
-  const pendingImages = new Set(sources.filter((_source, index) => statuses[index] === "pending"));
+  const pendingImages = new Set(
+    inlineSources.filter((source) => statuses[sources.indexOf(source)] === "pending"),
+  );
+  const resolvedUriBySource = new Map<string, string>();
+  const linkedImages: ResolvedLinkedMarkdownImage[] = [];
+  sources.forEach((source, index) => {
+    const uri = displayUrls[index];
+    if (uri && statuses[index] === "ready") {
+      resolvedUriBySource.set(source, uri);
+    }
+  });
+  for (const item of prepared.linkedImages) {
+    const uri = resolvedUriBySource.get(item.source);
+    if (uri) {
+      linkedImages.push({ source: item.source, label: item.label, uri });
+    }
+  }
   return {
     markdown: prepared.render(resolved, unavailableImages, pendingImages),
     linkRecognition: prepared.linkRecognition,
     linkSource: prepared.linkSource,
     imageSources: Object.fromEntries([...resolved].map(([source, url]) => [url, source])),
+    linkedImages,
+    resolvedUriBySource,
   };
 }
