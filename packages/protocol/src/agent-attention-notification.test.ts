@@ -90,6 +90,33 @@ describe("buildAgentAttentionNotificationPayload", () => {
     expect(payload.body).toBe('{"command":"echo hello"} - Hook requires approval');
   });
 
+  it("extracts readable question text instead of raw JSON for AskUserQuestion", () => {
+    const payload = buildAgentAttentionNotificationPayload({
+      reason: "permission",
+      serverId: "srv-1",
+      workspaceId: "workspace-1",
+      agentId: "agent-1",
+      permissionRequest: {
+        id: "perm-q1",
+        provider: "claude",
+        name: "AskUserQuestion",
+        kind: "question",
+        input: {
+          questions: [
+            {
+              question: "Quel logo préfères-tu pour AjuCode ?",
+              options: [{ label: "Brackets" }, { label: "Monogram A" }],
+            },
+          ],
+        },
+        description: "Waiting on user answer",
+      },
+    });
+
+    expect(payload.title).toBe("Agent has a question");
+    expect(payload.body).toBe("Quel logo préfères-tu pour AjuCode ? (Brackets · Monogram A)");
+  });
+
   it("uses error-specific defaults when reason is error", () => {
     const payload = buildAgentAttentionNotificationPayload({
       reason: "error",

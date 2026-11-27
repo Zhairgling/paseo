@@ -5,11 +5,14 @@ import { useActiveSessionAgentId } from "@/hooks/use-active-session-agent-id";
 import { homelabFetchJson, resolveHomelabDaemonTarget } from "@/homelab/api";
 import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
 import { useSessionStore, type Agent, type SessionState } from "@/stores/session-store";
+import type { StreamItem } from "@/types/stream";
+import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
 
 const PERMISSION_CATEGORY_ID = "paseo_permission";
 const ACTION_ALLOW = "paseo_permit_allow";
 const ACTION_DENY = "paseo_permit_deny";
 const ANDROID_CHANNEL_ID = "ajucode_agents";
+const MAX_BODY_LEN = 180;
 
 interface PermissionNotifData {
   serverId?: unknown;
@@ -62,9 +65,95 @@ async function sendPermissionDecision(
   });
 }
 
-function summarizePermission(description?: string | null, toolName?: string | null): string {
-  const text = (description || toolName || "Validation requise").trim();
-  return text.length > 140 ? `${text.slice(0, 137)}…` : text;
+function truncateText(raw: string, maxLen = MAX_BODY_LEN): string {
+  const clean = raw.replace(/\s+/g, " ").trim();
+  if (clean.length <= maxLen) return clean;
+  return `${clean.slice(0, maxLen - 1).trimEnd()}…`;
+}
+
+function stripMarkdownPreview(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}(?:#{1,6}|>+|\*|-|\d+\.)\s+/gm, "")
+    .replace(/[`*_~]+/g, "");
+}
+
+function isQuestionPermission(perm: AgentPermissionRequest): boolean {
+  return perm.kind === "question" || /ask_?user_?question/i.test(perm.name ?? "");
+}
+
+function extractQuestionBody(perm: AgentPermissionRequest): string {
+  const input = perm.input as
+    | {
+        questions?: Array<{ question?: unknown; options?: Array<{ label?: unknown }> }>;
+        question?: unknown;
+      }
+    | undefined;
+  if (input && Array.isArray(input.questions) && input.questions.length > 0) {
+    const first = input.questions[0];
+    const qText = typeof first?.question === "string" ? first.question.trim() : "";
+    if (qText) {
+      const prefix = input.questions.length > 1 ? `[1/${input.questions.length}] ` : "";
+      const opts = Array.isArray(first?.options)
+        ? first.options
+            .map((o) => (typeof o?.label === "string" ? o.label.trim() : ""))
+            .filter(Boolean)
+            .slice(0, 3)
+        : [];
+      const optSuffix = opts.length > 0 ? ` · ${opts.join(" / ")}` : "";
+      return truncateText(`${prefix}${qText}${optSuffix}`);
+    }
+  }
+  if (input && typeof input.question === "string" && input.question.trim()) {
+    return truncateText(input.question);
+  }
+  const fallback = perm.description?.trim() || perm.title?.trim() || "L'agent attend ta réponse.";
+  return truncateText(stripMarkdownPreview(fallback));
+}
+
+function extractToolPermissionBody(perm: AgentPermissionRequest): string {
+  const input = perm.input as
+    | { command?: unknown; file_path?: unknown; path?: unknown }
+    | undefined;
+  if (typeof input?.command === "string" && input.command.trim()) {
+    return truncateText(`$ ${input.command.trim()}`);
+  }
+  const desc = perm.description?.trim();
+  if (desc) {
+    return truncateText(stripMarkdownPreview(desc));
+  }
+  const targetPath =
+    (typeof input?.file_path === "string" && input.file_path.trim()) ||
+    (typeof input?.path === "string" && input.path.trim()) ||
+    "";
+  if (targetPath) {
+    return truncateText(targetPath);
+  }
+  return truncateText(perm.title?.trim() || perm.name || "Autorisation requise");
+}
+
+function findLatestAssistantText(items: readonly StreamItem[] | undefined): string | null {
+  if (!items || items.length === 0) return null;
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i];
+    if (item?.kind === "assistant_message" && item.text.trim()) {
+      return item.text;
+    }
+  }
+  return null;
+}
+
+function extractFinishedPreview(session: SessionState, agentId: string): string {
+  const raw =
+    findLatestAssistantText(session.agentStreamTail.get(agentId)) ??
+    findLatestAssistantText(session.agentStreamHead.get(agentId));
+  if (!raw) {
+    return "Nouvelle réponse prête.";
+  }
+  const clean = truncateText(stripMarkdownPreview(raw));
+  return clean || "Nouvelle réponse prête.";
 }
 
 function scheduleAgentNotification(input: {
@@ -87,8 +176,29 @@ function scheduleAgentNotification(input: {
   }).catch(() => {});
 }
 
+function notifyPermissionRequest(
+  perm: AgentPermissionRequest,
+  meta: { serverId: string; workspaceId: string; agentId: string; label: string },
+): void {
+  const isQuestion = isQuestionPermission(perm);
+  scheduleAgentNotification({
+    identifier: `${isQuestion ? "question" : "perm"}:${perm.id}:${Date.now()}`,
+    title: `${isQuestion ? "Question" : "Permission"} · ${meta.label}`,
+    body: isQuestion ? extractQuestionBody(perm) : extractToolPermissionBody(perm),
+    categoryIdentifier: isQuestion ? undefined : PERMISSION_CATEGORY_ID,
+    data: {
+      kind: "agent",
+      serverId: meta.serverId,
+      workspaceId: meta.workspaceId,
+      agentId: meta.agentId,
+      requestId: perm.id,
+    },
+  });
+}
+
 function inspectAgentTransitions(
   serverId: string,
+  session: SessionState,
   agent: Agent,
   ctx: {
     seeded: boolean;
@@ -104,42 +214,40 @@ function inspectAgentTransitions(
   if (isRunning) ctx.nextRunning.add(agentKey);
 
   const label = agent.title?.trim() || agent.id.slice(0, 8);
+  const workspaceId = agent.workspaceId ?? "";
+
   for (const perm of agent.pendingPermissions ?? []) {
     const permKey = `${agentKey}:${perm.id}`;
     ctx.nextPerms.add(permKey);
     if (!ctx.seeded || ctx.seenPerms.has(permKey) || ctx.viewingSameForeground) continue;
-
-    scheduleAgentNotification({
-      identifier: `perm:${perm.id}`,
-      title: `Validation · ${label}`,
-      body: summarizePermission(perm.description, perm.name),
-      categoryIdentifier: PERMISSION_CATEGORY_ID,
-      data: {
-        kind: "agent",
-        serverId,
-        agentId: agent.id,
-        requestId: perm.id,
-      },
-    });
+    notifyPermissionRequest(perm, { serverId, workspaceId, agentId: agent.id, label });
   }
 
   if (
-    ctx.seeded &&
-    ctx.wasRunning &&
-    !isRunning &&
-    agent.requiresAttention &&
-    !ctx.viewingSameForeground
+    !ctx.seeded ||
+    !ctx.wasRunning ||
+    isRunning ||
+    !agent.requiresAttention ||
+    ctx.viewingSameForeground
   ) {
-    scheduleAgentNotification({
-      identifier: `done:${agent.id}`,
-      title: `AjuCode · ${label}`,
-      body:
-        agent.attentionReason === "error"
-          ? "L'agent s'est arrêté avec une erreur."
-          : "Session prête — nouvelle réponse disponible.",
-      data: { kind: "agent", serverId, agentId: agent.id },
-    });
+    return;
   }
+
+  const body =
+    agent.attentionReason === "error"
+      ? truncateText(agent.lastError?.trim() || "L'agent s'est arrêté avec une erreur.")
+      : extractFinishedPreview(session, agent.id);
+  scheduleAgentNotification({
+    identifier: `done:${agent.id}:${agent.updatedAt.getTime()}`,
+    title: `AjuCode · ${label}`,
+    body,
+    data: {
+      kind: "agent",
+      serverId,
+      workspaceId,
+      agentId: agent.id,
+    },
+  });
 }
 
 function collectTransitions(
@@ -159,7 +267,7 @@ function collectTransitions(
     if (!session) continue;
     for (const agent of session.agents.values()) {
       const agentKey = `${serverId}:${agent.id}`;
-      inspectAgentTransitions(serverId, agent, {
+      inspectAgentTransitions(serverId, session, agent, {
         seeded: refs.seeded,
         seenPerms: refs.seenPerms,
         wasRunning: refs.runningKeys.has(agentKey),
@@ -174,7 +282,9 @@ function collectTransitions(
 
 /**
  * Interactive local Android notifications backed by live WebSocket state:
- * provides actionable Approve/Deny buttons on permissions without requiring Firebase.
+ * - displays the actual question for AskUserQuestion prompts (tap opens the session)
+ * - provides Approve/Deny buttons for tool permissions
+ * - previews the actual last assistant message when an agent finishes
  */
 export function useLocalAgentNotifications(): void {
   const activeAgentId = useActiveSessionAgentId();

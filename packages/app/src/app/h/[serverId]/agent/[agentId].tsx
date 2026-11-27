@@ -114,7 +114,13 @@ function HostAgentReadyRouteContent() {
     handledNavigationRef.current = navigationKey;
 
     if (resolution.kind === "resolved") {
-      navigateToAgent({ serverId, agentId, workspaceId: resolution.workspaceId, pin: true });
+      navigateToAgent({
+        serverId,
+        agentId,
+        workspaceId: resolution.workspaceId,
+        pin: true,
+        asTab: true,
+      });
       return;
     }
     router.replace(resolution.kind === "invalid" ? ("/" as Href) : buildHostRootRoute(serverId));

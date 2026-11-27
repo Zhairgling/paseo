@@ -102,11 +102,49 @@ const safeStringify = (value: unknown): string | null => {
   }
 };
 
+const extractQuestionDetails = (request: NotificationPermissionRequest): string | null => {
+  const isQuestion = request.kind === "question" || /ask_?user_?question/i.test(request.name ?? "");
+  if (!isQuestion) {
+    return null;
+  }
+
+  const input = request.input;
+  if (input && Array.isArray(input.questions) && input.questions.length > 0) {
+    const first = input.questions[0] as {
+      question?: unknown;
+      options?: Array<{ label?: unknown }>;
+    };
+    const qText = typeof first?.question === "string" ? first.question.trim() : "";
+    if (qText) {
+      const prefix = input.questions.length > 1 ? `[1/${input.questions.length}] ` : "";
+      const labels = Array.isArray(first.options)
+        ? first.options
+            .map((o) => (typeof o?.label === "string" ? o.label.trim() : ""))
+            .filter(Boolean)
+            .slice(0, 3)
+        : [];
+      const suffix = labels.length > 0 ? ` (${labels.join(" · ")})` : "";
+      return `${prefix}${qText}${suffix}`;
+    }
+  }
+
+  if (input && typeof input.question === "string" && input.question.trim()) {
+    return input.question.trim();
+  }
+
+  return request.description?.trim() || request.title?.trim() || "Question de l'agent";
+};
+
 const buildPermissionDetails = (
   request: NotificationPermissionRequest | null | undefined,
 ): string | null => {
   if (!request) {
     return null;
+  }
+
+  const questionDetails = extractQuestionDetails(request);
+  if (questionDetails) {
+    return questionDetails;
   }
 
   const title = request.title?.trim();
@@ -174,8 +212,19 @@ export function findLatestPermissionRequest(
   return latest;
 }
 
-function resolveAgentAttentionTitle(reason: AgentAttentionReason): string {
-  if (reason === "permission") return "Agent needs permission";
+function resolveAgentAttentionTitle(
+  reason: AgentAttentionReason,
+  permissionRequest?: NotificationPermissionRequest | null,
+): string {
+  if (reason === "permission") {
+    if (
+      permissionRequest?.kind === "question" ||
+      /ask_?user_?question/i.test(permissionRequest?.name ?? "")
+    ) {
+      return "Agent has a question";
+    }
+    return "Agent needs permission";
+  }
   if (reason === "error") return "Agent needs attention";
   return "Agent finished";
 }
@@ -201,7 +250,7 @@ function resolveAgentAttentionFallbackBody(reason: AgentAttentionReason): string
 export function buildAgentAttentionNotificationPayload(
   input: BuildAgentAttentionNotificationPayloadInput,
 ): AgentAttentionNotificationPayload {
-  const title = resolveAgentAttentionTitle(input.reason);
+  const title = resolveAgentAttentionTitle(input.reason, input.permissionRequest);
   const preview = resolveAgentAttentionPreview(input);
   const body = preview ?? resolveAgentAttentionFallbackBody(input.reason);
 

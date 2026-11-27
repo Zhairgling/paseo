@@ -8,6 +8,7 @@ import {
   useIsLastWorkspaceSelectionHydrated,
 } from "@/stores/navigation-active-workspace-store";
 import { useSidebarViewStore } from "@/stores/sidebar-view-store";
+import { usePanelStore } from "@/stores/panel-store";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { createNotificationOpenRouter } from "../model";
 import { createNotificationOpenSource } from "../source";
@@ -28,7 +29,10 @@ function navigateFromNotification(route: string): void {
 
 const notificationRouter = createNotificationOpenRouter({
   source: createNotificationOpenSource(),
-  openAgent: (target) => navigateToAgent({ ...target, pin: true }),
+  openAgent: (target) => {
+    usePanelStore.getState().showMobileAgent();
+    navigateToAgent({ ...target, pin: true, asTab: true });
+  },
   openTerminal: ({ serverId, workspaceId, terminalId }) =>
     navigateToWorkspace({
       serverId,
