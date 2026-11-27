@@ -3,6 +3,10 @@ import * as Notifications from "expo-notifications";
 import { AppState, Platform } from "react-native";
 import { useActiveSessionAgentId } from "@/hooks/use-active-session-agent-id";
 import { homelabFetchJson, resolveHomelabDaemonTarget } from "@/homelab/api";
+import {
+  formatFinishedAgentNotification,
+  formatPermissionAgentNotification,
+} from "@/homelab/agent-notification-format";
 import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
 import { buildPinnedSessionKey, usePinnedSessionsStore } from "@/stores/pinned-sessions-store";
 import { useSessionStore, type Agent, type SessionState } from "@/stores/session-store";
@@ -10,12 +14,13 @@ import type { StreamItem } from "@/types/stream";
 import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
 
 const PERMISSION_CATEGORY_ID = "paseo_permission";
+const REPLY_CATEGORY_ID = "paseo_reply";
 const ACTION_ALLOW = "paseo_permit_allow";
 const ACTION_DENY = "paseo_permit_deny";
+const ACTION_REPLY = "paseo_quick_reply";
 const ANDROID_CHANNEL_ID = "ajucode_agents";
-const MAX_BODY_LEN = 180;
 
-interface PermissionNotifData {
+interface AgentNotifData {
   serverId?: unknown;
   agentId?: unknown;
   requestId?: unknown;
@@ -24,7 +29,7 @@ interface PermissionNotifData {
 async function setupInteractiveCategories(): Promise<void> {
   if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
-      name: "Agents AjuCode",
+      name: "Activité des agents",
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 180, 100, 180],
     });
@@ -39,6 +44,17 @@ async function setupInteractiveCategories(): Promise<void> {
       identifier: ACTION_DENY,
       buttonTitle: "Refuser",
       options: { opensAppToForeground: false, isDestructive: true },
+    },
+  ]);
+  await Notifications.setNotificationCategoryAsync(REPLY_CATEGORY_ID, [
+    {
+      identifier: ACTION_REPLY,
+      buttonTitle: "Répondre",
+      textInput: {
+        submitButtonTitle: "Envoyer",
+        placeholder: "Réponse rapide…",
+      },
+      options: { opensAppToForeground: false },
     },
   ]);
 }
@@ -66,73 +82,12 @@ async function sendPermissionDecision(
   });
 }
 
-function truncateText(raw: string, maxLen = MAX_BODY_LEN): string {
-  const clean = raw.replace(/\s+/g, " ").trim();
-  if (clean.length <= maxLen) return clean;
-  return `${clean.slice(0, maxLen - 1).trimEnd()}…`;
-}
-
-function stripMarkdownPreview(markdown: string): string {
-  return markdown
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/^\s{0,3}(?:#{1,6}|>+|\*|-|\d+\.)\s+/gm, "")
-    .replace(/[`*_~]+/g, "");
-}
-
-function isQuestionPermission(perm: AgentPermissionRequest): boolean {
-  return perm.kind === "question" || /ask_?user_?question/i.test(perm.name ?? "");
-}
-
-function extractQuestionBody(perm: AgentPermissionRequest): string {
-  const input = perm.input as
-    | {
-        questions?: Array<{ question?: unknown; options?: Array<{ label?: unknown }> }>;
-        question?: unknown;
-      }
-    | undefined;
-  if (input && Array.isArray(input.questions) && input.questions.length > 0) {
-    const first = input.questions[0];
-    const qText = typeof first?.question === "string" ? first.question.trim() : "";
-    if (qText) {
-      const prefix = input.questions.length > 1 ? `[1/${input.questions.length}] ` : "";
-      const opts = Array.isArray(first?.options)
-        ? first.options
-            .map((o) => (typeof o?.label === "string" ? o.label.trim() : ""))
-            .filter(Boolean)
-            .slice(0, 3)
-        : [];
-      const optSuffix = opts.length > 0 ? ` · ${opts.join(" / ")}` : "";
-      return truncateText(`${prefix}${qText}${optSuffix}`);
-    }
-  }
-  if (input && typeof input.question === "string" && input.question.trim()) {
-    return truncateText(input.question);
-  }
-  const fallback = perm.description?.trim() || perm.title?.trim() || "L'agent attend ta réponse.";
-  return truncateText(stripMarkdownPreview(fallback));
-}
-
-function extractToolPermissionBody(perm: AgentPermissionRequest): string {
-  const input = perm.input as
-    | { command?: unknown; file_path?: unknown; path?: unknown }
-    | undefined;
-  if (typeof input?.command === "string" && input.command.trim()) {
-    return truncateText(`$ ${input.command.trim()}`);
-  }
-  const desc = perm.description?.trim();
-  if (desc) {
-    return truncateText(stripMarkdownPreview(desc));
-  }
-  const targetPath =
-    (typeof input?.file_path === "string" && input.file_path.trim()) ||
-    (typeof input?.path === "string" && input.path.trim()) ||
-    "";
-  if (targetPath) {
-    return truncateText(targetPath);
-  }
-  return truncateText(perm.title?.trim() || perm.name || "Autorisation requise");
+async function sendQuickReply(serverId: string, agentId: string, text: string): Promise<void> {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  const client = getHostRuntimeStore().getClient(serverId);
+  if (!client) return;
+  await client.sendMessage(agentId, trimmed);
 }
 
 function findLatestAssistantText(items: readonly StreamItem[] | undefined): string | null {
@@ -146,21 +101,12 @@ function findLatestAssistantText(items: readonly StreamItem[] | undefined): stri
   return null;
 }
 
-function extractFinishedPreview(session: SessionState, agentId: string): string {
-  const raw =
-    findLatestAssistantText(session.agentStreamTail.get(agentId)) ??
-    findLatestAssistantText(session.agentStreamHead.get(agentId));
-  if (!raw) {
-    return "Nouvelle réponse prête.";
-  }
-  const clean = truncateText(stripMarkdownPreview(raw));
-  return clean || "Nouvelle réponse prête.";
-}
-
 function scheduleAgentNotification(input: {
   identifier: string;
   title: string;
+  subtitle: string;
   body: string;
+  color: string;
   data: Record<string, string>;
   categoryIdentifier?: string;
 }): void {
@@ -168,7 +114,9 @@ function scheduleAgentNotification(input: {
     identifier: input.identifier,
     content: {
       title: input.title,
+      subtitle: input.subtitle,
       body: input.body,
+      color: input.color,
       categoryIdentifier: input.categoryIdentifier,
       sound: "default",
       data: input.data,
@@ -192,20 +140,28 @@ function shouldNotifyFinishedTurn(serverId: string, agent: Agent): boolean {
 }
 
 function notifyPermissionRequest(
+  session: SessionState,
+  agent: Agent,
   perm: AgentPermissionRequest,
-  meta: { serverId: string; workspaceId: string; agentId: string; label: string },
+  meta: { serverId: string; workspaceId: string },
 ): void {
-  const isQuestion = isQuestionPermission(perm);
+  const formatted = formatPermissionAgentNotification({
+    agent,
+    workspaces: session.workspaces,
+    permission: perm,
+  });
   scheduleAgentNotification({
-    identifier: `${isQuestion ? "question" : "perm"}:${perm.id}:${Date.now()}`,
-    title: `${isQuestion ? "Question" : "Permission"} · ${meta.label}`,
-    body: isQuestion ? extractQuestionBody(perm) : extractToolPermissionBody(perm),
-    categoryIdentifier: isQuestion ? undefined : PERMISSION_CATEGORY_ID,
+    identifier: `${formatted.tone}:${meta.serverId}:${agent.id}:${perm.id}`,
+    title: formatted.title,
+    subtitle: formatted.subtitle,
+    body: formatted.body,
+    color: formatted.color,
+    categoryIdentifier: formatted.tone === "question" ? undefined : PERMISSION_CATEGORY_ID,
     data: {
       kind: "agent",
       serverId: meta.serverId,
       workspaceId: meta.workspaceId,
-      agentId: meta.agentId,
+      agentId: agent.id,
       requestId: perm.id,
     },
   });
@@ -215,17 +171,23 @@ function notifyFinishedTurn(
   serverId: string,
   session: SessionState,
   agent: Agent,
-  label: string,
   workspaceId: string,
 ): void {
-  const isError = agent.attentionReason === "error";
-  const body = isError
-    ? truncateText(agent.lastError?.trim() || "L'agent s'est arrêté avec une erreur.")
-    : extractFinishedPreview(session, agent.id);
+  const rawAssistant =
+    findLatestAssistantText(session.agentStreamTail.get(agent.id)) ??
+    findLatestAssistantText(session.agentStreamHead.get(agent.id));
+  const formatted = formatFinishedAgentNotification({
+    agent,
+    workspaces: session.workspaces,
+    assistantMessage: rawAssistant,
+  });
   scheduleAgentNotification({
-    identifier: `done:${agent.id}:${agent.updatedAt.getTime()}`,
-    title: `AjuCode · ${label}`,
-    body,
+    identifier: `done:${serverId}:${agent.id}`,
+    title: formatted.title,
+    subtitle: formatted.subtitle,
+    body: formatted.body,
+    color: formatted.color,
+    categoryIdentifier: REPLY_CATEGORY_ID,
     data: {
       kind: "agent",
       serverId,
@@ -252,7 +214,6 @@ function inspectAgentTransitions(
   const isRunning = agent.status === "running" || agent.turn?.phase === "open";
   if (isRunning) ctx.nextRunning.add(agentKey);
 
-  const label = agent.title?.trim() || agent.id.slice(0, 8);
   const workspaceId = agent.workspaceId ?? "";
   const canNotify = ctx.seeded && !ctx.viewingSameForeground;
 
@@ -260,7 +221,7 @@ function inspectAgentTransitions(
     const permKey = `${agentKey}:${perm.id}`;
     ctx.nextPerms.add(permKey);
     if (canNotify && !ctx.seenPerms.has(permKey)) {
-      notifyPermissionRequest(perm, { serverId, workspaceId, agentId: agent.id, label });
+      notifyPermissionRequest(session, agent, perm, { serverId, workspaceId });
     }
   }
 
@@ -271,7 +232,7 @@ function inspectAgentTransitions(
     Boolean(agent.requiresAttention) &&
     shouldNotifyFinishedTurn(serverId, agent);
   if (finishedNow) {
-    notifyFinishedTurn(serverId, session, agent, label, workspaceId);
+    notifyFinishedTurn(serverId, session, agent, workspaceId);
   }
 }
 
@@ -307,9 +268,9 @@ function collectTransitions(
 
 /**
  * Interactive local Android notifications backed by live WebSocket state:
- * - displays the actual question for AskUserQuestion prompts (tap opens the session)
- * - provides Approve/Deny buttons for tool permissions
- * - previews the actual last assistant message when an agent finishes
+ * - displays workspace + state in subtitle and avoids repeating the app name
+ * - provides Approve/Deny buttons for tool permissions and inline Reply on finished turns
+ * - previews the essential takeaway of the assistant reply or concrete error
  */
 export function useLocalAgentNotifications(): void {
   const activeAgentId = useActiveSessionAgentId();
@@ -330,12 +291,25 @@ export function useLocalAgentNotifications(): void {
 
     const respSub = Notifications.addNotificationResponseReceivedListener((response) => {
       const action = response.actionIdentifier;
-      if (action !== ACTION_ALLOW && action !== ACTION_DENY) return;
-      const data = response.notification.request.content.data as PermissionNotifData | undefined;
+      const data = response.notification.request.content.data as AgentNotifData | undefined;
       const serverId = typeof data?.serverId === "string" ? data.serverId.trim() : "";
       const agentId = typeof data?.agentId === "string" ? data.agentId.trim() : "";
+      if (!serverId || !agentId) return;
+
+      if (action === ACTION_REPLY) {
+        const replyText = typeof response.userText === "string" ? response.userText.trim() : "";
+        if (replyText) {
+          void sendQuickReply(serverId, agentId, replyText).catch(() => {});
+        }
+        void Notifications.dismissNotificationAsync(response.notification.request.identifier).catch(
+          () => {},
+        );
+        return;
+      }
+
+      if (action !== ACTION_ALLOW && action !== ACTION_DENY) return;
       const requestId = typeof data?.requestId === "string" ? data.requestId.trim() : "";
-      if (!serverId || !agentId || !requestId) return;
+      if (!requestId) return;
 
       const decision = action === ACTION_ALLOW ? "allow" : "deny";
       void sendPermissionDecision(serverId, agentId, requestId, decision).catch(() => {});

@@ -82,6 +82,9 @@ interface AgentAttentionNotificationInput {
   serverId: string;
   workspaceId: string | undefined;
   agentId: string;
+  agentTitle?: string | null;
+  workspaceName?: string | null;
+  errorMessage?: string | null;
   assistantMessage: string | null;
   permissionRequest: NotificationPermissionRequest | null;
 }
@@ -100,9 +103,41 @@ export function resolveAgentAttentionNotification(
     serverId: input.serverId,
     workspaceId: input.workspaceId,
     agentId: input.agentId,
+    agentTitle: input.agentTitle,
+    workspaceName: input.workspaceName,
+    errorMessage: input.errorMessage,
     assistantMessage: input.reason === "finished" ? input.assistantMessage : null,
     permissionRequest: input.reason === "permission" ? input.permissionRequest : null,
   });
+}
+
+function resolveSessionNotificationContext(
+  session: SessionState | undefined,
+  agentId: string,
+): {
+  workspaceId: string | undefined;
+  agentTitle: string | null;
+  workspaceName: string | null;
+  errorMessage: string | null;
+} {
+  const agent = session?.agents?.get(agentId);
+  if (!agent) {
+    return { workspaceId: undefined, agentTitle: null, workspaceName: null, errorMessage: null };
+  }
+  const agentTitle = agent.title?.trim() || null;
+  const ws = agent.workspaceId ? session?.workspaces?.get(agent.workspaceId) : undefined;
+  const wsName = ws?.projectCustomName?.trim() || ws?.projectDisplayName?.trim() || null;
+  const cwdName =
+    agent.cwd
+      .replace(/[\\/]+$/, "")
+      .split(/[\\/]/)
+      .pop() || null;
+  return {
+    workspaceId: agent.workspaceId,
+    agentTitle,
+    workspaceName: agentTitle ? (wsName ?? cwdName) : null,
+    errorMessage: agent.lastError ?? null,
+  };
 }
 
 export function deliverAgentAttentionOsNotification(input: {
@@ -149,14 +184,17 @@ export function deliverAgentAttentionOsNotification(input: {
   const assistantMessage =
     findLatestAssistantMessageText(head) ?? findLatestAssistantMessageText(tail);
   const permissionRequest = getLatestPermissionRequest(input.session, input.params.agentId);
-  const workspaceId = input.session?.agents?.get(input.params.agentId)?.workspaceId;
+  const ctx = resolveSessionNotificationContext(input.session, input.params.agentId);
 
   const notification = resolveAgentAttentionNotification({
     notification: input.params.notification,
     reason: input.params.reason,
     serverId: input.serverId,
-    workspaceId,
+    workspaceId: ctx.workspaceId,
     agentId: input.params.agentId,
+    agentTitle: ctx.agentTitle,
+    workspaceName: ctx.workspaceName,
+    errorMessage: ctx.errorMessage,
     assistantMessage,
     permissionRequest,
   });

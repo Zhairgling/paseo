@@ -25,7 +25,7 @@ import { CreationService } from "./creation/index.js";
 import { MessageReceipts } from "./message-receipts/index.js";
 import { WebSocket, WebSocketServer } from "ws";
 import type { IncomingMessage, Server as HTTPServer } from "http";
-import { join } from "path";
+import { basename, join } from "path";
 import { getCachedHostMachineKind } from "./host-machine-kind.js";
 import { getHostName } from "./host-name.js";
 import { randomUUID } from "node:crypto";
@@ -2997,6 +2997,26 @@ export class VoiceAssistantWebSocketServer {
     };
   }
 
+  private buildAttentionPayload(
+    agent: NonNullable<ReturnType<AgentManager["getAgent"]>>,
+    params: { agentId: string; reason: "finished" | "error" | "permission" },
+    assistantMessage: string | null,
+  ) {
+    const agentTitle = agent.config?.title?.trim() || null;
+    const workspaceName = agentTitle && agent.cwd ? basename(agent.cwd) || null : null;
+    return buildAgentAttentionNotificationPayload({
+      reason: params.reason,
+      serverId: this.serverId,
+      workspaceId: agent.workspaceId!,
+      agentId: params.agentId,
+      agentTitle,
+      workspaceName,
+      errorMessage: agent.lastError?.trim() || null,
+      assistantMessage,
+      permissionRequest: findLatestPermissionRequest(agent.pendingPermissions),
+    });
+  }
+
   private async broadcastAgentAttention(params: {
     agentId: string;
     provider: AgentProvider;
@@ -3031,14 +3051,7 @@ export class VoiceAssistantWebSocketServer {
     const allStates = notificationEntries.map((e) => e.state);
     const nowMs = Date.now();
     const assistantMessage = await this.agentManager.getLastAssistantMessage(params.agentId);
-    const notification = buildAgentAttentionNotificationPayload({
-      reason: params.reason,
-      serverId: this.serverId,
-      workspaceId: agent.workspaceId,
-      agentId: params.agentId,
-      assistantMessage,
-      permissionRequest: findLatestPermissionRequest(agent.pendingPermissions),
-    });
+    const notification = this.buildAttentionPayload(agent, params, assistantMessage);
 
     const plan = this.planOncePerUnreadFinish(
       params,

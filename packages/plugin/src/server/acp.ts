@@ -140,6 +140,7 @@ export interface AcpTransformer {
     persistence?: ProviderPersistence;
     systemPrompt?: string;
     agentMetadata: JsonValue;
+    cwd?: string;
   }): { sessionId?: string; metadata?: Readonly<Record<string, JsonValue>> };
 
   discover?(

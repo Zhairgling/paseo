@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
 import { execCommand } from "@getpaseo/plugin/server";
 import { runAcpProvider, type AcpTransformer } from "@getpaseo/plugin/server/acp";
 import {
@@ -21,6 +24,62 @@ const PASEO_ACP_SYSTEM_RULES = [
   "Do not call Antigravity's local `ConversationService` (`conversations` skill / `localhost:46669`) or `invoke_subagent` when asked to create a conversation the user can open in AjuCode.",
 ].join(" ");
 
+const MAX_SHARED_FILE_CHARS = 2500;
+const MAX_SHARED_TOTAL_CHARS = 7000;
+
+function readBoundedText(filePath: string, maxChars: number): string | null {
+  try {
+    if (!existsSync(filePath)) return null;
+    const raw = readFileSync(filePath, "utf8").trim();
+    if (!raw) return null;
+    if (raw.length <= maxChars) return raw;
+    return `${raw.slice(0, maxChars - 1).trimEnd()}…`;
+  } catch {
+    return null;
+  }
+}
+
+export function encodeClaudeProjectSlug(dirPath: string): string {
+  return path.resolve(dirPath).replace(/[^a-zA-Z0-9-]/g, "-");
+}
+
+/**
+ * Loads global and workspace-level Claude Code rules/memory so Antigravity sessions
+ * share the same project history and conventions established with Claude Code.
+ */
+export function buildSharedClaudeContext(cwd?: string, homeDir = homedir()): string | null {
+  const sections: string[] = [];
+  let total = 0;
+
+  const appendSection = (label: string, content: string | null) => {
+    if (!content || total >= MAX_SHARED_TOTAL_CHARS) return;
+    const remaining = MAX_SHARED_TOTAL_CHARS - total;
+    const trimmed = content.length <= remaining ? content : `${content.slice(0, remaining - 1)}…`;
+    sections.push(`[${label}]\n${trimmed}`);
+    total += trimmed.length;
+  };
+
+  const globalClaudePath = path.join(homeDir, ".claude", "CLAUDE.md");
+  appendSection(globalClaudePath, readBoundedText(globalClaudePath, MAX_SHARED_FILE_CHARS));
+
+  if (cwd?.trim()) {
+    const resolvedCwd = path.resolve(cwd);
+    const repoClaudePath = path.join(resolvedCwd, "CLAUDE.md");
+    appendSection(repoClaudePath, readBoundedText(repoClaudePath, MAX_SHARED_FILE_CHARS));
+
+    const slug = encodeClaudeProjectSlug(resolvedCwd);
+    const memoryDir = path.join(homeDir, ".claude", "projects", slug, "memory");
+    const memoryIndexPath = path.join(memoryDir, "MEMORY.md");
+    appendSection(memoryIndexPath, readBoundedText(memoryIndexPath, MAX_SHARED_FILE_CHARS));
+  }
+
+  if (sections.length === 0) return null;
+  return [
+    "Shared Claude Code rules & persistent memory for this workspace (read linked topic .md files in the same memory folder if needed):",
+    ...sections,
+  ].join("\n\n");
+}
+
 // agy 1.5.13 advertises these built-in commands and its invocable skills in one ACP list.
 const builtInCommands = new Set([
   "goal",
@@ -39,10 +98,11 @@ const antigravity: AcpTransformer = {
     return { ...command, kind: builtInCommands.has(command.name) ? "command" : "skill" };
   },
   toolCall: mapToolCall,
-  sessionOpen({ persistence, systemPrompt, agentMetadata }) {
+  sessionOpen({ persistence, systemPrompt, agentMetadata, cwd }) {
     // COMPAT(antigravityStreamJson): added in v0.16.2, remove after 2027-11-19.
     const saved = legacySession.safeParse(persistence);
-    const appendedPrompt = [systemPrompt?.trim(), PASEO_ACP_SYSTEM_RULES]
+    const sharedClaude = buildSharedClaudeContext(cwd);
+    const appendedPrompt = [systemPrompt?.trim(), PASEO_ACP_SYSTEM_RULES, sharedClaude]
       .filter(Boolean)
       .join("\n\n");
     return {

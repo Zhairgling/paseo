@@ -694,6 +694,7 @@ class AcpRuntime {
         persistence: input.persistence,
         systemPrompt: input.config.systemPrompt,
         agentMetadata: jsonValue(this.agentCapabilities._meta ?? null),
+        cwd: input.config.cwd,
       });
       nativeSessionId ??= prepared?.sessionId ?? null;
       Object.assign(metadata, prepared?.metadata);

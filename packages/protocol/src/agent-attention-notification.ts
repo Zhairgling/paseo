@@ -21,6 +21,9 @@ interface BuildAgentAttentionNotificationPayloadInput {
   serverId: string;
   workspaceId: string;
   agentId: string;
+  agentTitle?: string | null;
+  workspaceName?: string | null;
+  errorMessage?: string | null;
   assistantMessage?: string | null;
   permissionRequest?: NotificationPermissionRequest | null;
 }
@@ -212,7 +215,7 @@ export function findLatestPermissionRequest(
   return latest;
 }
 
-function resolveAgentAttentionTitle(
+function resolveReasonTag(
   reason: AgentAttentionReason,
   permissionRequest?: NotificationPermissionRequest | null,
 ): string {
@@ -221,11 +224,49 @@ function resolveAgentAttentionTitle(
       permissionRequest?.kind === "question" ||
       /ask_?user_?question/i.test(permissionRequest?.name ?? "")
     ) {
-      return "Agent has a question";
+      return "Question";
     }
-    return "Agent needs permission";
+    return "Permission";
   }
-  if (reason === "error") return "Agent needs attention";
+  if (reason === "error") return "Erreur";
+  return "Terminé";
+}
+
+function resolveCleanAgentLabel(
+  rawAgent: string | null,
+  rawWorkspace: string | null,
+): string | null {
+  if (rawAgent && !/^(?:ajucode|paseo)$/i.test(rawAgent)) {
+    return rawAgent;
+  }
+  return rawWorkspace ? `Session ${rawWorkspace}` : null;
+}
+
+function resolveAttentionSubject(
+  input: BuildAgentAttentionNotificationPayloadInput,
+): string | null {
+  const rawWorkspace = input.workspaceName?.trim() || null;
+  const cleanAgent = resolveCleanAgentLabel(input.agentTitle?.trim() || null, rawWorkspace);
+  if (!cleanAgent) return rawWorkspace;
+  if (rawWorkspace && cleanAgent !== rawWorkspace && !cleanAgent.endsWith(rawWorkspace)) {
+    return `${cleanAgent} (${rawWorkspace})`;
+  }
+  return cleanAgent;
+}
+
+function resolveAgentAttentionTitle(input: BuildAgentAttentionNotificationPayloadInput): string {
+  const subject = resolveAttentionSubject(input);
+  if (subject) {
+    return `${subject} · ${resolveReasonTag(input.reason, input.permissionRequest)}`;
+  }
+
+  if (input.reason === "permission") {
+    const isQuestion =
+      input.permissionRequest?.kind === "question" ||
+      /ask_?user_?question/i.test(input.permissionRequest?.name ?? "");
+    return isQuestion ? "Agent has a question" : "Agent needs permission";
+  }
+  if (input.reason === "error") return "Agent needs attention";
   return "Agent finished";
 }
 
@@ -237,6 +278,9 @@ function resolveAgentAttentionPreview(
   }
   if (input.reason === "permission") {
     return buildNotificationPreview(buildPermissionDetails(input.permissionRequest));
+  }
+  if (input.reason === "error" && input.errorMessage?.trim()) {
+    return buildNotificationPreview(input.errorMessage);
   }
   return null;
 }
@@ -250,7 +294,7 @@ function resolveAgentAttentionFallbackBody(reason: AgentAttentionReason): string
 export function buildAgentAttentionNotificationPayload(
   input: BuildAgentAttentionNotificationPayloadInput,
 ): AgentAttentionNotificationPayload {
-  const title = resolveAgentAttentionTitle(input.reason, input.permissionRequest);
+  const title = resolveAgentAttentionTitle(input);
   const preview = resolveAgentAttentionPreview(input);
   const body = preview ?? resolveAgentAttentionFallbackBody(input.reason);
 

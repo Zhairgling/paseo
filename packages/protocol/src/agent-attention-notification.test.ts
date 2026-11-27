@@ -136,6 +136,32 @@ describe("buildAgentAttentionNotificationPayload", () => {
       },
     });
   });
+
+  it("includes agent title, workspace, and error message without repeating app name", () => {
+    const finished = buildAgentAttentionNotificationPayload({
+      reason: "finished",
+      serverId: "srv-1",
+      workspaceId: "wks-1",
+      agentId: "agt-1",
+      agentTitle: "ajucode",
+      workspaceName: "miBand8",
+      assistantMessage: "Build terminé.",
+    });
+    expect(finished.title).toBe("Session miBand8 · Terminé");
+    expect(finished.title).not.toMatch(/ajucode/i);
+
+    const errored = buildAgentAttentionNotificationPayload({
+      reason: "error",
+      serverId: "srv-1",
+      workspaceId: "wks-1",
+      agentId: "agt-2",
+      agentTitle: "écho firmware",
+      workspaceName: "echo-libre",
+      errorMessage: "Timeout during cargo clippy",
+    });
+    expect(errored.title).toBe("écho firmware (echo-libre) · Erreur");
+    expect(errored.body).toBe("Timeout during cargo clippy");
+  });
 });
 
 describe("findLatestAssistantMessageFromTimeline", () => {

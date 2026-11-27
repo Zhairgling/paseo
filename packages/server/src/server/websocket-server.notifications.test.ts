@@ -403,6 +403,40 @@ describe("VoiceAssistantWebSocketServer notification payloads", () => {
     ]);
   });
 
+  it("includes agent title, workspace basename, and concrete errorMessage in push payloads", async () => {
+    const getLastAssistantMessage = vi.fn(async () => "Compilé sans erreur.");
+    const { server, pushNotifications } = createServer({
+      getAgent: vi.fn(() => ({
+        config: { title: "écho firmware" },
+        cwd: "/home/julienc/Documents/GitHub/echo-libre",
+        workspaceId: WORKSPACE_ID,
+        lastError: "cargo check failed",
+        pendingPermissions: new Map(),
+      })),
+      getLastAssistantMessage,
+    });
+
+    await asInternals<WebSocketServerInternals>(server).broadcastAgentAttention({
+      agentId: "agent-named",
+      provider: "antigravity",
+      reason: "error",
+      attentionTimestamp: new Date(),
+    });
+
+    expect(pushNotifications.sent).toEqual([
+      {
+        title: "écho firmware (echo-libre) · Erreur",
+        body: "cargo check failed",
+        data: {
+          serverId: "srv-test",
+          workspaceId: WORKSPACE_ID,
+          agentId: "agent-named",
+          reason: "error",
+        },
+      },
+    ]);
+  });
+
   it("filters agent finished, permission, and error pushes per token preferences", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "paseo-ws-agent-prefs-"));
     try {

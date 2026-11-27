@@ -1,9 +1,13 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import type { ProviderEvent } from "@getpaseo/plugin/server/provider";
 import { afterEach, describe, expect, it } from "vitest";
-import { createAntigravityProvider } from "./provider.js";
+import {
+  buildSharedClaudeContext,
+  createAntigravityProvider,
+  encodeClaudeProjectSlug,
+} from "./provider.js";
 
 const directories: string[] = [];
 
@@ -287,11 +291,16 @@ it.each([true, false])(
         .map((line) => JSON.parse(line));
       const load = requests.find((request) => request.method === "session/load");
       expect(load.params.sessionId).toBe("saved-conversation");
-      expect(load.params._meta.antigravity).toEqual(
-        supportsSystemPrompt
-          ? { systemPrompt: { append: "A test system instruction" } }
-          : undefined,
-      );
+      if (supportsSystemPrompt) {
+        expect(load.params._meta.antigravity).toEqual({
+          systemPrompt: { append: expect.stringContaining("A test system instruction") },
+        });
+        expect(load.params._meta.antigravity.systemPrompt.append).toContain(
+          "Do not call Antigravity's local `ConversationService`",
+        );
+      } else {
+        expect(load.params._meta.antigravity).toBeUndefined();
+      }
     } finally {
       await connection.close();
     }
@@ -957,4 +966,23 @@ child.on("exit", (code) => process.exit(code ?? 1));
   } finally {
     await connection.close();
   }
+});
+
+it("loads global Claude rules, repo CLAUDE.md, and project MEMORY.md for shared context", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "paseo-shared-claude-"));
+  directories.push(root);
+  const home = path.join(root, "home");
+  const repo = path.join(root, "repo", "my-project");
+  const memoryDir = path.join(home, ".claude", "projects", encodeClaudeProjectSlug(repo), "memory");
+  await mkdir(path.join(home, ".claude"), { recursive: true });
+  await mkdir(repo, { recursive: true });
+  await mkdir(memoryDir, { recursive: true });
+  await writeFile(path.join(home, ".claude", "CLAUDE.md"), "Global rule: use ssh mac.");
+  await writeFile(path.join(repo, "CLAUDE.md"), "Repo rule: run cargo test --locked.");
+  await writeFile(path.join(memoryDir, "MEMORY.md"), "- [Note](note.md) — shared decision.");
+
+  const context = buildSharedClaudeContext(repo, home);
+  expect(context).toContain("Global rule: use ssh mac.");
+  expect(context).toContain("Repo rule: run cargo test --locked.");
+  expect(context).toContain("- [Note](note.md) — shared decision.");
 });
