@@ -14,6 +14,12 @@ android {
   namespace "sh.paseo.ondevice.llm"
 }
 
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+  kotlinOptions {
+    freeCompilerArgs += ["-Xskip-metadata-version-check"]
+  }
+}
+
 dependencies {
   implementation "com.google.ai.edge.litertlm:litertlm-android:0.16.1"
 }
