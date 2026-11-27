@@ -74,6 +74,7 @@ import {
 } from "@/provider-selection/provider-selection";
 import { getModelSelectorMeta } from "@/provider-selection/model-metadata";
 import { useProviderSettingsStore } from "@/stores/provider-settings-store";
+import { openProviderAuthTerminal } from "@/components/provider-auth-terminal-modal";
 import { useCurrentOverlayLayer } from "@/lib/overlay-root";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { focusedModelBrowserControlOwnsEnter } from "@/components/model-browser-focus";
@@ -349,11 +350,16 @@ function resolveDesktopFixedHeight(
   providers: ProviderSelectorProvider[],
 ): number {
   const modelCount = countModelsInView(view, providers);
+  const isErrorView =
+    view.kind === "provider" &&
+    providers.some(
+      (entry) => entry.id === view.providerId && entry.modelSelection.kind === "error",
+    );
+  const minHeight = isErrorView
+    ? Math.min(DESKTOP_PROVIDER_VIEW_MAX_HEIGHT, 340)
+    : DESKTOP_PROVIDER_VIEW_MIN_HEIGHT;
   return Math.min(
-    Math.max(
-      DESKTOP_PROVIDER_VIEW_MIN_HEIGHT,
-      DESKTOP_PROVIDER_VIEW_BASE_HEIGHT + modelCount * DESKTOP_MODEL_ROW_HEIGHT,
-    ),
+    Math.max(minHeight, DESKTOP_PROVIDER_VIEW_BASE_HEIGHT + modelCount * DESKTOP_MODEL_ROW_HEIGHT),
     DESKTOP_PROVIDER_VIEW_MAX_HEIGHT,
   );
 }
@@ -1606,30 +1612,68 @@ function ModelRowList({
 }
 
 function ProviderErrorEmptyState({
+  serverId,
   providerId,
   message,
   onRetryProvider,
   isRetryingProvider,
 }: {
+  serverId: string | null;
   providerId: string;
   message: string;
   onRetryProvider?: (provider: AgentProvider) => void;
   isRetryingProvider: boolean;
 }) {
   const { t } = useTranslation();
+  const overlayParentLayer = useCurrentOverlayLayer();
   const handleRetry = useCallback(() => {
     onRetryProvider?.(providerId);
   }, [onRetryProvider, providerId]);
+  const handleOpenAuthTerminal = useCallback(() => {
+    if (!serverId) return;
+    openProviderAuthTerminal({
+      serverId,
+      provider: providerId,
+      onComplete: () => onRetryProvider?.(providerId),
+    });
+  }, [onRetryProvider, providerId, serverId]);
+  const handleOpenSettings = useCallback(() => {
+    if (!serverId) return;
+    useProviderSettingsStore
+      .getState()
+      .open({ serverId, provider: providerId, overlayParentLayer });
+  }, [overlayParentLayer, providerId, serverId]);
+
   return (
-    <View style={styles.emptyState}>
+    <ScrollView style={styles.virtualizedModelList} contentContainerStyle={styles.emptyState}>
       <ThemedAlertTriangle size={ICON_SIZE.md} uniProps={foregroundMutedMapping} />
-      <Text style={styles.emptyStateText}>{message}</Text>
-      {onRetryProvider ? (
-        <Button variant="default" onPress={handleRetry} disabled={isRetryingProvider}>
-          {isRetryingProvider ? t("modelSelector.retrying") : t("modelSelector.retry")}
-        </Button>
-      ) : null}
-    </View>
+      <Text style={styles.emptyStateErrorText}>{message}</Text>
+      <View style={styles.errorActionsRow}>
+        {onRetryProvider ? (
+          <Button variant="default" onPress={handleRetry} disabled={isRetryingProvider}>
+            {isRetryingProvider ? t("modelSelector.retrying") : t("modelSelector.retry")}
+          </Button>
+        ) : null}
+        {serverId ? (
+          <Button
+            variant="secondary"
+            onPress={handleOpenAuthTerminal}
+            testID="provider-error-auth-terminal"
+          >
+            Se connecter (Terminal)
+          </Button>
+        ) : null}
+        {serverId ? (
+          <Button
+            variant="outline"
+            onPress={handleOpenSettings}
+            testID="provider-error-open-settings"
+          >
+            Réglages
+          </Button>
+        ) : null}
+      </View>
+    </ScrollView>
   );
 }
 
@@ -1961,6 +2005,7 @@ function ModelBrowserContent({
   } else if (projection.kind === "providerError") {
     content = (
       <ProviderErrorEmptyState
+        serverId={serverId}
         providerId={projection.providerId}
         message={projection.message}
         onRetryProvider={onRetryProvider}
@@ -2228,9 +2273,20 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: "center",
     gap: theme.spacing[2],
   },
+  errorActionsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: theme.spacing[2],
+  },
   emptyStateText: {
     fontSize: theme.fontSize.base,
     color: theme.colors.foregroundMuted,
+  },
+  emptyStateErrorText: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.foregroundMuted,
+    textAlign: "center",
   },
   tooltipText: {
     fontSize: theme.fontSize.sm,

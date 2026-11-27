@@ -77,6 +77,7 @@ import { PaneSubtitle } from "@/panels/pane-subtitle";
 import { definePanel } from "@/panels/panel-registry";
 import { RenderProfile } from "@/utils/render-profiler";
 import { buildDraftPanelDescriptor } from "@/panels/draft-panel-descriptor";
+import { ProviderRecoveryActions } from "@/components/provider-auth-terminal-modal";
 import {
   type HostRuntimeConnectionStatus,
   useHostRuntimeClient,
@@ -223,7 +224,19 @@ function buildChatAgentFromState(
   };
 }
 
-function AgentLoadErrorView({ message, onRetry }: { message: string; onRetry: () => void }) {
+function AgentLoadErrorView({
+  message,
+  onRetry,
+  serverId,
+  provider,
+  cwd,
+}: {
+  message: string;
+  onRetry: () => void;
+  serverId?: string | null;
+  provider?: string | null;
+  cwd?: string | null;
+}) {
   const { t } = useTranslation();
   return (
     <View style={styles.container} testID="agent-load-error">
@@ -235,6 +248,15 @@ function AgentLoadErrorView({ message, onRetry }: { message: string; onRetry: ()
             {t("common.actions.retry")}
           </Button>
         </View>
+        {serverId ? (
+          <ProviderRecoveryActions
+            serverId={serverId}
+            provider={provider}
+            cwd={cwd}
+            onComplete={onRetry}
+            spacingTop
+          />
+        ) : null}
       </View>
     </View>
   );
@@ -244,6 +266,8 @@ function AgentLoadErrorView({ message, onRetry }: { message: string; onRetry: ()
 function renderConversationNonReadyView(args: {
   draft: DraftConversation | null;
   agentId: string | undefined;
+  serverId: string;
+  provider?: string | null;
   cwd: string | null;
   viewState: AgentScreenViewState;
   effectiveAgent: AgentScreenAgent | null;
@@ -264,12 +288,15 @@ function renderConversationNonReadyView(args: {
 }
 
 function renderChatAgentNonReadyView(args: {
+  serverId: string;
+  provider?: string | null;
+  cwd: string | null;
   viewState: AgentScreenViewState;
   effectiveAgent: AgentScreenAgent | null;
   t: TFunction;
   onRetryLoad: () => void;
 }): React.ReactElement | null {
-  const { viewState, effectiveAgent, t, onRetryLoad } = args;
+  const { serverId, provider, cwd, viewState, effectiveAgent, t, onRetryLoad } = args;
   if (viewState.tag === "not_found") {
     return (
       <View style={styles.container} testID="agent-not-found">
@@ -280,7 +307,15 @@ function renderChatAgentNonReadyView(args: {
     );
   }
   if (viewState.tag === "error") {
-    return <AgentLoadErrorView message={viewState.message} onRetry={onRetryLoad} />;
+    return (
+      <AgentLoadErrorView
+        message={viewState.message}
+        onRetry={onRetryLoad}
+        serverId={serverId}
+        provider={provider}
+        cwd={cwd}
+      />
+    );
   }
   if (viewState.tag === "boot" || !effectiveAgent) {
     return (
@@ -622,7 +657,15 @@ function AgentPanelBody({
   }
 
   if (lookupState.tag === "error") {
-    return <AgentLoadErrorView message={lookupState.message} onRetry={retryAgentLookup} />;
+    return (
+      <AgentLoadErrorView
+        message={lookupState.message}
+        onRetry={retryAgentLookup}
+        serverId={serverId}
+        provider={agentState.provider}
+        cwd={agentState.cwd}
+      />
+    );
   }
 
   const agent: AgentScreenAgent | null =
@@ -1005,6 +1048,8 @@ function ChatAgentContent({
   const nonReadyView = renderConversationNonReadyView({
     draft,
     agentId,
+    serverId,
+    provider: agentState.provider,
     cwd: agentState.cwd,
     viewState,
     effectiveAgent,

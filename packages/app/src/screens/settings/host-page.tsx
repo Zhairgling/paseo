@@ -22,6 +22,7 @@ import {
 } from "@getpaseo/protocol/terminal-profiles";
 import { AgentProfilesPage, type AgentProfilesBeforeLeaveGuard } from "@/agent-profiles";
 import { AgentSkillsSection } from "@/agent-skills";
+import { ProviderRecoveryActions } from "@/components/provider-auth-terminal-modal";
 import { AdaptiveModalSheet, type SheetHeader } from "@/components/adaptive-modal-sheet";
 import { PageLayout } from "@/components/page-layout";
 import { SettingsCard, SettingsRow, SettingsSection } from "@/components/settings";
@@ -226,6 +227,13 @@ export function HostConnectionError({ serverId }: { serverId: string }) {
         title={connectionError}
         description={snapshot?.authFailureReason ? t("settings.host.password.guidance") : undefined}
         testID="host-connection-error"
+      />
+      <ProviderRecoveryActions
+        serverId={serverId}
+        showTerminal={false}
+        showHostSettings={false}
+        align="start"
+        spacingTop
       />
     </View>
   );

@@ -49,6 +49,7 @@ import { ChangelogHost } from "@/changelog";
 import { OnboardingHost, useIsSetupDecisionPending } from "@/onboarding";
 import { AppDiagnosticHost } from "@/components/app-diagnostic-host";
 import { QuickVoicePickerHost } from "@/components/quick-voice-picker-modal";
+import { ProviderAuthTerminalHost } from "@/components/provider-auth-terminal-modal";
 import { AppearanceStyleBoundary } from "@/components/appearance-style-boundary";
 import { LeftSidebar } from "@/components/left-sidebar";
 import { WindowSidebarMenuToggle } from "@/components/headers/sidebar-menu-toggle";
@@ -587,6 +588,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
         <KeyboardShortcutsDialog />
         <AppDiagnosticHost />
         <QuickVoicePickerHost />
+        <ProviderAuthTerminalHost />
         <ChangelogHost />
         <QuittingOverlay />
       </AppearanceStyleBoundary>

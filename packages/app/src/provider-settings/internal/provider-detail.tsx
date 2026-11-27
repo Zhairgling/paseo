@@ -1,6 +1,10 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
+import {
+  openProviderAuthTerminal,
+  ProviderRecoveryActions,
+} from "@/components/provider-auth-terminal-modal";
 import { ProviderInstallationSection } from "@/components/provider-installation-section";
 import { useProviderInstallation } from "@/components/provider-installation";
 import {
@@ -120,7 +124,15 @@ export function ProviderDetail({
 
   return (
     <View testID="provider-detail">
-      {sections.error !== null ? <ProviderErrorAlert label={label} error={sections.error} /> : null}
+      {sections.error !== null ? (
+        <ProviderErrorAlert
+          label={label}
+          error={sections.error}
+          serverId={serverId}
+          provider={provider}
+          onRefresh={handleRefresh}
+        />
+      ) : null}
       <EnabledCard serverId={serverId} entry={entry} />
       <ProviderInstallationSection
         state={shownInstallation}
@@ -158,7 +170,19 @@ function AbsentProvider({ presence }: { presence: Exclude<DetailPresence, { kind
   return <ProviderNotice message={message} testID={`provider-detail-${presence.kind}`} />;
 }
 
-function ProviderErrorAlert({ label, error }: { label: string; error: string }) {
+function ProviderErrorAlert({
+  label,
+  error,
+  serverId,
+  provider,
+  onRefresh,
+}: {
+  label: string;
+  error: string;
+  serverId: string;
+  provider: string;
+  onRefresh: () => void;
+}) {
   const { t } = useTranslation();
   return (
     <View style={settingsStyles.section}>
@@ -167,6 +191,14 @@ function ProviderErrorAlert({ label, error }: { label: string; error: string }) 
         title={t("settings.providers.detail.unavailableTitle", { name: label })}
         description={error || t("settings.providers.diagnostic.unknownError")}
         testID="provider-error"
+      />
+      <ProviderRecoveryActions
+        serverId={serverId}
+        provider={provider}
+        onComplete={onRefresh}
+        showHostSettings={false}
+        align="start"
+        spacingTop
       />
     </View>
   );
@@ -211,11 +243,23 @@ function Troubleshooting({
   const openDocs = useCallback(() => {
     if (docsUrl) void openExternalUrl(docsUrl);
   }, [docsUrl]);
+  const openAuthTerminal = useCallback(() => {
+    openProviderAuthTerminal({
+      serverId,
+      provider: entry.provider,
+      onComplete: refresh?.run,
+    });
+  }, [entry.provider, refresh, serverId]);
 
   return (
     <SettingsSection title={t("settings.providers.detail.troubleshooting")}>
       <SettingsCard>
         {refresh ? <ProviderStatusRow refresh={refresh} /> : null}
+        <SettingsDetailRow
+          label="Se connecter dans un terminal"
+          onPress={openAuthTerminal}
+          testID="provider-auth-terminal"
+        />
         <SettingsDetailRow
           label={t("settings.providers.detail.diagnosticReport")}
           onPress={openDiagnostic}
