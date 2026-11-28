@@ -248,6 +248,7 @@ export class Lfm3VoiceClient {
   private lastAgentKey = "";
   private lastUtterance = "";
   private turnStartMs = 0;
+  private playbackQueue: Promise<void> = Promise.resolve();
   private state: Lfm3VoiceState = {
     connectionState: "disconnected",
     wsUrl: DEFAULT_LFM3_WS_URL,
@@ -378,18 +379,23 @@ export class Lfm3VoiceClient {
     this.emit({ connectionState: "disconnected", isCapturing: false, isGenerating: false });
   }
 
-  private async playAudioDelta(msg: Record<string, unknown>): Promise<void> {
+  private playAudioDelta(msg: Record<string, unknown>): void {
     const b64 = typeof msg.pcm_24k_base64 === "string" ? msg.pcm_24k_base64 : "";
     if (!b64) return;
     const sr = typeof msg.sample_rate === "number" ? msg.sample_rate : 24_000;
-    const engine = this.ensureAudio();
-    await engine.initialize();
     const buf = base64ToArrayBuffer(b64);
-    void engine.play({
-      arrayBuffer: async () => buf,
-      size: buf.byteLength,
-      type: `audio/pcm;rate=${sr};bits=16`,
-    });
+    this.playbackQueue = this.playbackQueue
+      .then(async () => {
+        const engine = this.ensureAudio();
+        await engine.initialize();
+        await engine.play({
+          arrayBuffer: async () => buf,
+          size: buf.byteLength,
+          type: `audio/pcm;rate=${sr};bits=16`,
+        });
+        return;
+      })
+      .catch(() => undefined);
   }
 
   private async handleToolCallMessage(msg: Record<string, unknown>): Promise<void> {
@@ -430,7 +436,7 @@ export class Lfm3VoiceClient {
         });
         return;
       case "response.audio.delta":
-        await this.playAudioDelta(msg);
+        this.playAudioDelta(msg);
         return;
       case "response.tool_call":
         await this.handleToolCallMessage(msg);
