@@ -12,6 +12,7 @@ import { StyleSheet } from "react-native-unistyles";
 import { AdaptiveTextInput } from "@/components/adaptive-text-input";
 import { Button } from "@/components/ui/button";
 import { type DaemonHttpTarget } from "./api";
+import { registerLfm3Controller } from "./app-control-bridge";
 import { DEFAULT_LFM3_WS_URL, Lfm3VoiceClient } from "./lfm3-voice-client";
 
 export function Lfm3VoicePanel({ target }: { target: DaemonHttpTarget }): ReactElement {
@@ -30,10 +31,17 @@ export function Lfm3VoicePanel({ target }: { target: DaemonHttpTarget }): ReactE
   }, [client, target]);
 
   useEffect(() => {
+    const unreg = registerLfm3Controller({
+      connect: () => client.connect(wsUrlInput),
+      disconnect: () => client.disconnect(),
+      sendText: (t) => client.sendTextPrompt(t),
+      cancel: () => client.cancelResponse(),
+    });
     return () => {
+      unreg();
       client.disconnect();
     };
-  }, [client]);
+  }, [client, wsUrlInput]);
 
   const handleToggleConnect = useCallback(() => {
     if (state.connectionState === "ready" || state.connectionState === "connecting") {

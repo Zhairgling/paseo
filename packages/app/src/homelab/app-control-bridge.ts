@@ -32,6 +32,13 @@ export interface MediaControlHandle {
   showImage: () => boolean;
 }
 
+export interface Lfm3ControlHandle {
+  connect: () => void;
+  disconnect: () => void;
+  sendText: (text: string) => void;
+  cancel: () => void;
+}
+
 export interface RecentContextMessage {
   role: "user" | "assistant";
   text: string;
@@ -76,6 +83,7 @@ let activeNavigation: NavigationControlHandle | null = null;
 let activeTeamTab: TeamTabControlHandle | null = null;
 let activeScroll: ScrollControlHandle | null = null;
 let activeMedia: MediaControlHandle | null = null;
+let activeLfm3: Lfm3ControlHandle | null = null;
 let lastAssistantMsg: AssistantMessageSummary | null = null;
 let recentContextMessages: RecentContextMessage[] = [];
 
@@ -157,6 +165,13 @@ export function registerMediaController(handle: MediaControlHandle | null): () =
       activeMedia = null;
       notifySnapshotListeners();
     }
+  };
+}
+
+export function registerLfm3Controller(handle: Lfm3ControlHandle | null): () => void {
+  activeLfm3 = handle;
+  return () => {
+    if (activeLfm3 === handle) activeLfm3 = null;
   };
 }
 
@@ -347,6 +362,32 @@ function runUiViewCommand(command: string, args: Record<string, unknown>): Recor
   return { ok: false, error: `Commande vue inconnue: ${command}` };
 }
 
+function runLfm3ControlCommand(
+  command: string,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!activeLfm3) return { ok: false, error: "Panneau LFM3 non monté" };
+  switch (command) {
+    case "lfm3.connect":
+      activeLfm3.connect();
+      return { ok: true };
+    case "lfm3.disconnect":
+      activeLfm3.disconnect();
+      return { ok: true };
+    case "lfm3.cancel":
+      activeLfm3.cancel();
+      return { ok: true };
+    case "lfm3.send_text": {
+      const text = String(args.text ?? "").trim();
+      if (!text) return { ok: false, error: "text requis" };
+      activeLfm3.sendText(text);
+      return { ok: true, sent: text };
+    }
+    default:
+      return { ok: false, error: `Commande LFM3 inconnue: ${command}` };
+  }
+}
+
 export async function executeAppControlCommand(
   command: string,
   args: Record<string, unknown> = {},
@@ -377,6 +418,10 @@ export async function executeAppControlCommand(
 
   if (command === "scroll" || command === "show_image") {
     return runUiViewCommand(command, args);
+  }
+
+  if (command.startsWith("lfm3.")) {
+    return runLfm3ControlCommand(command, args);
   }
 
   if (command === "team.switch_tab") {
