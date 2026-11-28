@@ -163,7 +163,21 @@ const KNOWN_LFM3_TOOLS = new Set([
   "stop_speech",
   "read_markdown",
   "interrupt_session",
+  "brainstorm_or_reply",
 ]);
+
+async function runReadMarkdownTool(
+  target: DaemonHttpTarget,
+  args: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const docPath = String(args.path ?? "").trim();
+  if (!docPath) return { ok: false, error: "path manquant" };
+  const doc = await homelabFetchJson<{ ok: boolean; content?: string }>(
+    target,
+    `/api/homelab/doc?path=${encodeURIComponent(docPath)}`,
+  );
+  return { ok: true, content: (doc.content ?? "").slice(0, 1800) };
+}
 
 export async function executeLfm3PaseoTool(
   target: DaemonHttpTarget,
@@ -212,15 +226,14 @@ export async function executeLfm3PaseoTool(
     case "stop_speech":
     case "interrupt_session":
       return executeAppControlCommand("speech.stop", {}, "assistant_local");
-    case "read_markdown": {
-      const docPath = String(args.path ?? "").trim();
-      if (!docPath) return { ok: false, error: "path manquant" };
-      const doc = await homelabFetchJson<{ ok: boolean; content?: string }>(
-        target,
-        `/api/homelab/doc?path=${encodeURIComponent(docPath)}`,
-      );
-      return { ok: true, content: (doc.content ?? "").slice(0, 1800) };
-    }
+    case "brainstorm_or_reply":
+      return {
+        ok: true,
+        mode: "pure_s2s",
+        topic: String(args.topic ?? "").trim(),
+      };
+    case "read_markdown":
+      return runReadMarkdownTool(target, args);
     default:
       return { ok: false, error: `Outil inconnu: ${name}` };
   }
