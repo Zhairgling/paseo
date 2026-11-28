@@ -58,8 +58,10 @@ const uiMeta = {
 };
 
 const snapshotListeners = new Set<() => void>();
+let cachedSnapshot: AppUiSnapshot | null = null;
 
 function notifySnapshotListeners(): void {
+  cachedSnapshot = null;
   for (const listener of snapshotListeners) {
     listener();
   }
@@ -118,6 +120,9 @@ export function registerTeamTabController(handle: TeamTabControlHandle | null): 
 }
 
 export function getAppUiSnapshot(): AppUiSnapshot {
+  if (cachedSnapshot) {
+    return cachedSnapshot;
+  }
   const composerText = activeComposer ? activeComposer.getText() : "";
   const canSubmit = activeComposer ? activeComposer.canSubmit() : false;
   const availableActions: string[] = ["ui.snapshot", "navigate"];
@@ -131,7 +136,7 @@ export function getAppUiSnapshot(): AppUiSnapshot {
     availableActions.push("team.switch_tab");
   }
 
-  return {
+  cachedSnapshot = {
     pathname: uiMeta.pathname,
     screen: uiMeta.screen,
     activeServerId: uiMeta.activeServerId,
@@ -152,6 +157,7 @@ export function getAppUiSnapshot(): AppUiSnapshot {
     availableActions,
     updatedAt: Date.now(),
   };
+  return cachedSnapshot;
 }
 
 function resolveRoutePath(args: Record<string, unknown>): string | null {
