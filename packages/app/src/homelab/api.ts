@@ -241,6 +241,43 @@ export interface HomelabLaunchResponse {
   launched?: Record<string, unknown>;
 }
 
+export type UsageEventSource = "user" | "assistant_local" | "agent_remote";
+
+export interface TopUsageEntry {
+  key: string;
+  count: number;
+  sharePct: number;
+}
+
+export interface UsageEventRecord {
+  action: string;
+  screen: string;
+  source: UsageEventSource;
+  detail?: string;
+  ts: number;
+}
+
+export interface HomelabUsageStatsResponse {
+  ok: boolean;
+  updatedAt: string;
+  totalEvents: number;
+  sourceCounts: Record<UsageEventSource, number>;
+  topActions: TopUsageEntry[];
+  topScreens: TopUsageEntry[];
+  recentEvents: UsageEventRecord[];
+}
+
+export interface AppControlStateResponse {
+  ok: boolean;
+  activeDevice: {
+    deviceId: string;
+    updatedAt: number;
+    snapshot: Record<string, unknown>;
+  } | null;
+  devices: Array<{ deviceId: string; updatedAt: number; ageMs: number }>;
+  pendingCommands: number;
+}
+
 export async function homelabFetchJson<T>(
   target: DaemonHttpTarget,
   pathAndQuery: string,

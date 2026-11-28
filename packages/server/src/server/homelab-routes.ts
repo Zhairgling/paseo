@@ -7,6 +7,13 @@ import { promisify } from "node:util";
 import type { Express, Request, Response } from "express";
 import type { Logger } from "pino";
 import {
+  readHomelabUsageStatsFile,
+  recordHomelabUsageEvents,
+  resetHomelabUsageStats,
+  summarizeHomelabUsageStats,
+  type UsageEventInput,
+} from "./homelab-stats-store.js";
+import {
   buildEffectiveSystemPrompt,
   COLAB_GPU_TIERS,
   COLAB_MAX_SLOTS,
@@ -1338,5 +1345,212 @@ export function registerHomelabRoutes(
         res.status(500).json({ ok: false, error: "Erreur interne au lancement" });
       }
     })();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Usage Statistics & Unified App Control Bridge (Habilitation UI / Vocal)
+  // ---------------------------------------------------------------------------
+
+  interface AppControlCommandEntry {
+    id: string;
+    deviceId: string;
+    command: string;
+    args: Record<string, unknown>;
+    source: "assistant_local" | "agent_remote";
+    createdAt: number;
+    resolveWaiter?: (result: Record<string, unknown>) => void;
+  }
+
+  const latestUiSnapshots = new Map<
+    string,
+    { deviceId: string; updatedAt: number; snapshot: unknown }
+  >();
+  const pendingControlCommands: AppControlCommandEntry[] = [];
+  const inflightControlWaiters = new Map<string, AppControlCommandEntry>();
+
+  app.get("/api/homelab/stats", (_req: Request, res: Response) => {
+    void (async () => {
+      try {
+        const file = await readHomelabUsageStatsFile(paseoHome);
+        res.json({ ok: true, ...summarizeHomelabUsageStats(file) });
+      } catch (err) {
+        logger.warn({ err }, "Homelab usage stats read failed");
+        res.status(500).json({ ok: false, error: "Lecture stats impossible" });
+      }
+    })();
+  });
+
+  app.post("/api/homelab/stats/event", (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      events?: UsageEventInput[];
+      event?: UsageEventInput;
+    } & UsageEventInput;
+    let batch: UsageEventInput[] = [];
+    if (Array.isArray(body.events)) {
+      batch = body.events;
+    } else if (body.event) {
+      batch = [body.event];
+    } else if (body.action) {
+      batch = [body];
+    }
+    if (batch.length === 0) {
+      res.status(400).json({ ok: false, error: "Aucun événement fourni" });
+      return;
+    }
+    void (async () => {
+      try {
+        const updated = await recordHomelabUsageEvents(paseoHome, batch);
+        res.json({ ok: true, totalEvents: updated.totalEvents });
+      } catch (err) {
+        logger.warn({ err }, "Homelab usage stats write failed");
+        res.status(500).json({ ok: false, error: "Écriture stats impossible" });
+      }
+    })();
+  });
+
+  app.delete("/api/homelab/stats", (_req: Request, res: Response) => {
+    void (async () => {
+      try {
+        const fresh = await resetHomelabUsageStats(paseoHome);
+        res.json({ ok: true, ...summarizeHomelabUsageStats(fresh) });
+      } catch (err) {
+        logger.warn({ err }, "Homelab usage stats reset failed");
+        res.status(500).json({ ok: false, error: "Réinitialisation stats impossible" });
+      }
+    })();
+  });
+
+  app.post("/api/homelab/app-control/snapshot", (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { deviceId?: string; snapshot?: unknown };
+    const deviceId = String(body.deviceId ?? "default").trim() || "default";
+    latestUiSnapshots.set(deviceId, {
+      deviceId,
+      updatedAt: Date.now(),
+      snapshot: body.snapshot ?? {},
+    });
+    res.json({ ok: true, deviceId });
+  });
+
+  app.get("/api/homelab/app-control/state", (req: Request, res: Response) => {
+    const deviceId = typeof req.query.deviceId === "string" ? req.query.deviceId.trim() : "";
+    const devices = Array.from(latestUiSnapshots.values()).sort(
+      (a, b) => b.updatedAt - a.updatedAt,
+    );
+    const active = deviceId ? (latestUiSnapshots.get(deviceId) ?? null) : (devices[0] ?? null);
+    res.json({
+      ok: true,
+      activeDevice: active,
+      devices: devices.map((d) => ({
+        deviceId: d.deviceId,
+        updatedAt: d.updatedAt,
+        ageMs: Date.now() - d.updatedAt,
+      })),
+      pendingCommands: pendingControlCommands.length,
+    });
+  });
+
+  app.get("/api/homelab/app-control/commands/poll", (req: Request, res: Response) => {
+    const deviceId = String(req.query.deviceId ?? "default").trim() || "default";
+    const matched: AppControlCommandEntry[] = [];
+    for (let i = pendingControlCommands.length - 1; i >= 0; i -= 1) {
+      const cmd = pendingControlCommands[i]!;
+      if (cmd.deviceId === "*" || cmd.deviceId === deviceId) {
+        pendingControlCommands.splice(i, 1);
+        matched.unshift(cmd);
+        inflightControlWaiters.set(cmd.id, cmd);
+      }
+    }
+    res.json({
+      ok: true,
+      commands: matched.map((c) => ({
+        id: c.id,
+        command: c.command,
+        args: c.args,
+        source: c.source,
+        createdAt: c.createdAt,
+      })),
+    });
+  });
+
+  app.post("/api/homelab/app-control/commands/:id/result", (req: Request, res: Response) => {
+    const id = String(req.params.id ?? "").trim();
+    const entry = inflightControlWaiters.get(id);
+    if (entry) {
+      inflightControlWaiters.delete(id);
+      entry.resolveWaiter?.((req.body ?? { ok: true }) as Record<string, unknown>);
+    }
+    res.json({ ok: true });
+  });
+
+  app.post("/api/homelab/app-control/execute", (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      deviceId?: string;
+      command?: string;
+      args?: Record<string, unknown>;
+      source?: "assistant_local" | "agent_remote";
+      waitMs?: number;
+    };
+    const command = String(body.command ?? "").trim();
+    if (!command) {
+      res.status(400).json({ ok: false, error: "command est requis" });
+      return;
+    }
+    const deviceId = String(body.deviceId ?? "*").trim() || "*";
+    const source = body.source === "assistant_local" ? "assistant_local" : "agent_remote";
+    const waitMs = Math.min(Math.max(Number(body.waitMs ?? 4500), 0), 10_000);
+    const id = `cmd-${randomUUID().slice(0, 8)}`;
+
+    void (async () => {
+      try {
+        await recordHomelabUsageEvents(paseoHome, [
+          { action: `control.${command}`, screen: "app_control", source, detail: deviceId },
+        ]);
+      } catch {
+        // Non-fatal
+      }
+    })();
+
+    if (waitMs === 0) {
+      pendingControlCommands.push({
+        id,
+        deviceId,
+        command,
+        args: body.args ?? {},
+        source,
+        createdAt: Date.now(),
+      });
+      res.json({ ok: true, queued: true, id });
+      return;
+    }
+
+    let settled = false;
+    const entry: AppControlCommandEntry = {
+      id,
+      deviceId,
+      command,
+      args: body.args ?? {},
+      source,
+      createdAt: Date.now(),
+      resolveWaiter: (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        res.json({ ok: true, id, executed: true, result });
+      },
+    };
+    pendingControlCommands.push(entry);
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      inflightControlWaiters.delete(id);
+      res.json({
+        ok: true,
+        id,
+        executed: false,
+        queued: true,
+        note: "Commande mise en file (appareil non joignable dans le délai imparti)",
+      });
+    }, waitMs);
   });
 }

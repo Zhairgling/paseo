@@ -18,12 +18,15 @@ import {
   type HomelabTimelineItem,
 } from "@/homelab/api";
 import { computeColabGpuMetrics } from "@/homelab/colab-metrics";
+import { registerTeamTabController } from "@/homelab/app-control-bridge";
+import { HomelabStatsAndControlPanel } from "@/homelab/stats-panel";
 import { HomelabScenarioLauncher, HomelabTemplatesCrudPanel } from "@/homelab/templates-manager";
+import { trackUsageEvent } from "@/homelab/usage-stats";
 import { useHosts } from "@/runtime/host-runtime";
 import { UsageMeter } from "@/usage/meter";
 import { buildHostAgentDetailRoute } from "@/utils/host-routes";
 
-type TabId = "colab" | "local" | "templates" | "docs";
+type TabId = "colab" | "local" | "templates" | "stats" | "docs";
 type TargetId = "both" | "colab" | "mac" | "evo" | "air" | "blade" | "launch_both";
 type BehaviorId = "queue" | "steer" | "interrupt";
 type NodeHealth = "ok" | "warn" | "off";
@@ -36,6 +39,7 @@ const TAB_OPTIONS: ReadonlyArray<{ id: TabId; label: string }> = [
   { id: "colab", label: "Colab GPU" },
   { id: "local", label: "Local & Agents" },
   { id: "templates", label: "Templates" },
+  { id: "stats", label: "Stats & Contrôle" },
   { id: "docs", label: "Docs" },
 ];
 
@@ -195,6 +199,28 @@ function TeamScreenContent(): ReactElement {
 
   const handleOpenGpuTab = useCallback(() => {
     setTab("colab");
+    trackUsageEvent("team.switch_tab", { detail: "colab" });
+  }, []);
+
+  const handleSelectTab = useCallback((nextTab: TabId) => {
+    setTab(nextTab);
+    trackUsageEvent("team.switch_tab", { detail: nextTab });
+  }, []);
+
+  useEffect(() => {
+    return registerTeamTabController({
+      switchTab: (next) => {
+        if (
+          next === "colab" ||
+          next === "local" ||
+          next === "templates" ||
+          next === "stats" ||
+          next === "docs"
+        ) {
+          setTab(next);
+        }
+      },
+    });
   }, []);
 
   const openAgentNative = useCallback(
@@ -218,7 +244,7 @@ function TeamScreenContent(): ReactElement {
     <View style={styles.container}>
       <MenuHeader title="Équipe & GPU (AjuCode)" rightContent={headerRight} />
 
-      <TopStrip tab={tab} onSelectTab={setTab} gpu={gpu} onOpenGpu={handleOpenGpuTab} />
+      <TopStrip tab={tab} onSelectTab={handleSelectTab} gpu={gpu} onOpenGpu={handleOpenGpuTab} />
 
       {errorMsg ? (
         <View style={styles.errorBanner}>
@@ -271,6 +297,12 @@ function TeamScreenContent(): ReactElement {
       {tab === "templates" ? (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.gpuContent}>
           <HomelabTemplatesCrudPanel target={target} />
+        </ScrollView>
+      ) : null}
+
+      {tab === "stats" ? (
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.gpuContent}>
+          <HomelabStatsAndControlPanel target={target} />
         </ScrollView>
       ) : null}
 

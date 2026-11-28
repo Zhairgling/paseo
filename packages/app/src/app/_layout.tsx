@@ -48,6 +48,7 @@ import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog"
 import { ChangelogHost } from "@/changelog";
 import { OnboardingHost, useIsSetupDecisionPending } from "@/onboarding";
 import { AppDiagnosticHost } from "@/components/app-diagnostic-host";
+import { HomelabAppControlHost } from "@/homelab/app-control-host";
 import { QuickVoicePickerHost } from "@/components/quick-voice-picker-modal";
 import { ProviderAuthTerminalHost } from "@/components/provider-auth-terminal-modal";
 import { AppearanceStyleBoundary } from "@/components/appearance-style-boundary";
@@ -589,6 +590,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
         <WorkspaceSetupDialog />
         <KeyboardShortcutsDialog />
         <AppDiagnosticHost />
+        <HomelabAppControlHost />
         <QuickVoicePickerHost />
         <ProviderAuthTerminalHost />
         <ChangelogHost />

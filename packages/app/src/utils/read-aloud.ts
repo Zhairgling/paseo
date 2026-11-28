@@ -1,5 +1,6 @@
 import * as Speech from "expo-speech";
 import { useCallback, useSyncExternalStore } from "react";
+import { trackUsageEvent } from "@/homelab/usage-stats";
 import { resolveActiveOnDeviceTts, useOnDeviceSpeechStore } from "@/stores/ondevice-speech-store";
 import { getOnDeviceSpeechModule } from "../../modules/aju-ondevice-speech";
 
@@ -105,6 +106,7 @@ export function stripMarkdownForSpeech(raw: string): string {
 }
 
 export function stopReadAloud(): void {
+  trackUsageEvent("speech.stop");
   speakSequence += 1;
   if (activeSpeakingId !== null) {
     activeSpeakingId = null;
@@ -114,11 +116,12 @@ export function stopReadAloud(): void {
   void Speech.stop();
 }
 
-function startReadAloud(id: string, rawText: string): void {
+export function startReadAloud(id: string, rawText: string): void {
   const cleaned = stripMarkdownForSpeech(rawText);
   if (!cleaned) {
     return;
   }
+  trackUsageEvent("speech.read_aloud");
 
   speakSequence += 1;
   const seq = speakSequence;

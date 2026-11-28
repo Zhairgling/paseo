@@ -201,6 +201,8 @@ import {
   type WorkspaceFileDragPayload,
 } from "@/attachments/workspace-file-drag";
 import { useOnDeviceLlmStore } from "@/stores/ondevice-llm-store";
+import { registerActiveComposerController } from "@/homelab/app-control-bridge";
+import { trackUsageEvent } from "@/homelab/usage-stats";
 import { canRepromptText, formatRepromptDownloadBadge, REPROMPT_MODE_LABELS } from "./reprompt";
 import type { RepromptMode } from "../../modules/aju-ondevice-llm";
 
@@ -1876,6 +1878,7 @@ function ComposerContentImpl({
           queueMessage(queuedText, queuedAttachments);
         },
         submitMessage: async ({ message: submitText, attachments: submitAttachments }) => {
+          trackUsageEvent("composer.send");
           if (submitBehavior !== "preserve-and-lock") {
             beginSubmit(submitAttachments);
           }
@@ -1913,6 +1916,40 @@ function ComposerContentImpl({
       t,
     ],
   );
+
+  useEffect(() => {
+    if (!isActiveComposer) return;
+    return registerActiveComposerController({
+      getText: () => textSource.getSnapshot(),
+      setText: (nextText, editMode = "replace") => {
+        if (editMode === "append") {
+          insertUserInput(nextText);
+        } else {
+          replaceUserInput(nextText);
+        }
+      },
+      clear: () => {
+        clearDraft("abandoned");
+        replaceUserInput("");
+      },
+      submit: async () => {
+        await sendMessageWithContent(
+          textSource.getSnapshot(),
+          buildOutgoingAttachments(attachments),
+        );
+      },
+      canSubmit: () => Boolean(sendAgentMessageRef.current || onSubmitMessageRef.current),
+    });
+  }, [
+    attachments,
+    buildOutgoingAttachments,
+    clearDraft,
+    insertUserInput,
+    isActiveComposer,
+    replaceUserInput,
+    sendMessageWithContent,
+    textSource,
+  ]);
 
   const handleSubmit = useCallback(
     (payload: MessagePayload) => {
