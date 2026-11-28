@@ -100,6 +100,51 @@ function ScenarioColabOptions({
   );
 }
 
+function ScenarioExamplesSection({
+  scenario,
+  onSelectExample,
+}: {
+  scenario: ScenarioTemplate | undefined;
+  onSelectExample: (example: string) => void;
+}) {
+  if (!scenario) return null;
+  const examples = scenario.taskExamples ?? [];
+  const cliTools = scenario.cliTools ?? [];
+  if (!scenario.badgeGpu && examples.length === 0 && cliTools.length === 0) return null;
+
+  return (
+    <>
+      {scenario.badgeGpu || cliTools.length > 0 ? (
+        <Text style={styles.itemHint}>
+          {[
+            scenario.badgeGpu ? `Profil : ${scenario.badgeGpu}` : "",
+            cliTools.length > 0 ? `CLI : ${cliTools.join(", ")}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </Text>
+      ) : null}
+
+      {examples.length > 0 ? (
+        <>
+          <Text style={styles.label}>Exemples de tâches (clic pour préremplir)</Text>
+          <View style={styles.rowWrap}>
+            {examples.map((ex) => (
+              <PillButton
+                key={ex}
+                value={ex}
+                label={ex.length > 56 ? `${ex.slice(0, 56)}…` : ex}
+                active={false}
+                onPress={onSelectExample}
+              />
+            ))}
+          </View>
+        </>
+      ) : null}
+    </>
+  );
+}
+
 function ScenarioInjectionsSection({
   availableSkills,
   availableMcps,
@@ -360,6 +405,16 @@ export function HomelabScenarioLauncher({
     universe,
   ]);
 
+  const activeScenario = useMemo(
+    () => scenariosForUniverse.find((s) => s.id === selectedScenarioId),
+    [scenariosForUniverse, selectedScenarioId],
+  );
+
+  const handleSelectExample = useCallback((example: string) => {
+    setTaskPrompt(example);
+    setLaunchResetCount((c) => c + 1);
+  }, []);
+
   const availableSkills = useMemo(
     () => (templates?.skills ?? []).filter((s) => s.scope === "both" || s.scope === universe),
     [templates?.skills, universe],
@@ -464,6 +519,8 @@ export function HomelabScenarioLauncher({
         onToggleSkill={toggleSkill}
         onToggleMcp={toggleMcp}
       />
+
+      <ScenarioExamplesSection scenario={activeScenario} onSelectExample={handleSelectExample} />
 
       <AdaptiveTextInput
         initialValue={taskTitle}

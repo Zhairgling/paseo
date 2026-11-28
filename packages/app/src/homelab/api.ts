@@ -163,9 +163,14 @@ export interface ScenarioTemplate {
   modelId: string;
   quant: QuantOption;
   gpuTier?: ColabGpuTier;
+  badgeGpu?: string;
+  maxSlots?: number;
+  allowLocalSubagents?: boolean;
   systemPrompt: string;
+  taskExamples?: string[];
   skillIds: string[];
   mcpIds: string[];
+  cliTools?: string[];
   builtIn?: boolean;
   updatedAt: string;
 }
