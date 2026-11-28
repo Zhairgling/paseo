@@ -19,6 +19,7 @@ import {
 } from "@/homelab/api";
 import { computeColabGpuMetrics } from "@/homelab/colab-metrics";
 import { registerTeamTabController } from "@/homelab/app-control-bridge";
+import { Lfm3VoicePanel } from "@/homelab/lfm3-voice-panel";
 import { HomelabStatsAndControlPanel } from "@/homelab/stats-panel";
 import { HomelabScenarioLauncher, HomelabTemplatesCrudPanel } from "@/homelab/templates-manager";
 import { trackUsageEvent } from "@/homelab/usage-stats";
@@ -302,6 +303,7 @@ function TeamScreenContent(): ReactElement {
 
       {tab === "stats" ? (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.gpuContent}>
+          <Lfm3VoicePanel target={target} />
           <HomelabStatsAndControlPanel target={target} />
         </ScrollView>
       ) : null}

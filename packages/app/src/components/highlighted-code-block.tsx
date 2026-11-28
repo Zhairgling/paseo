@@ -100,11 +100,11 @@ export const HighlightedCodeBlock = React.memo(function HighlightedCodeBlock({
       onPointerLeave={handlePointerLeave}
     >
       {keyedLines ? (
-        <Text style={innerTextStyle} dataSet={markdownCopyDataSet.code}>
+        <Text selectable style={innerTextStyle} dataSet={markdownCopyDataSet.code}>
           {renderCodeSegments(keyedLines)}
         </Text>
       ) : (
-        <Text style={innerTextStyle} dataSet={markdownCopyDataSet.code}>
+        <Text selectable style={innerTextStyle} dataSet={markdownCopyDataSet.code}>
           {renderedCode}
         </Text>
       )}
