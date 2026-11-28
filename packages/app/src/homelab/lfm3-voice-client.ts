@@ -249,6 +249,9 @@ export class Lfm3VoiceClient {
   private lastUtterance = "";
   private turnStartMs = 0;
   private playbackQueue: Promise<void> = Promise.resolve();
+  private pendingAudioChunks: Uint8Array[] = [];
+  private pendingAudioBytes = 0;
+  private pendingSampleRate = 24_000;
   private state: Lfm3VoiceState = {
     connectionState: "disconnected",
     wsUrl: DEFAULT_LFM3_WS_URL,
@@ -379,11 +382,18 @@ export class Lfm3VoiceClient {
     this.emit({ connectionState: "disconnected", isCapturing: false, isGenerating: false });
   }
 
-  private playAudioDelta(msg: Record<string, unknown>): void {
-    const b64 = typeof msg.pcm_24k_base64 === "string" ? msg.pcm_24k_base64 : "";
-    if (!b64) return;
-    const sr = typeof msg.sample_rate === "number" ? msg.sample_rate : 24_000;
-    const buf = base64ToArrayBuffer(b64);
+  private flushAudioBuffer(): void {
+    if (this.pendingAudioBytes === 0) return;
+    const merged = new Uint8Array(this.pendingAudioBytes);
+    let offset = 0;
+    for (const chunk of this.pendingAudioChunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    this.pendingAudioChunks = [];
+    this.pendingAudioBytes = 0;
+    const sr = this.pendingSampleRate;
+    const buf = merged.buffer;
     this.playbackQueue = this.playbackQueue
       .then(async () => {
         const engine = this.ensureAudio();
@@ -396,6 +406,18 @@ export class Lfm3VoiceClient {
         return;
       })
       .catch(() => undefined);
+  }
+
+  private playAudioDelta(msg: Record<string, unknown>): void {
+    const b64 = typeof msg.pcm_24k_base64 === "string" ? msg.pcm_24k_base64 : "";
+    if (!b64) return;
+    this.pendingSampleRate = typeof msg.sample_rate === "number" ? msg.sample_rate : 24_000;
+    const bytes = new Uint8Array(base64ToArrayBuffer(b64));
+    this.pendingAudioChunks.push(bytes);
+    this.pendingAudioBytes += bytes.byteLength;
+    if (this.pendingAudioBytes >= 19_200) {
+      this.flushAudioBuffer();
+    }
   }
 
   private async handleToolCallMessage(msg: Record<string, unknown>): Promise<void> {
@@ -442,6 +464,7 @@ export class Lfm3VoiceClient {
         await this.handleToolCallMessage(msg);
         return;
       case "response.done": {
+        this.flushAudioBuffer();
         const wsRttMs = this.turnStartMs > 0 ? Date.now() - this.turnStartMs : 0;
         const ttftMs = Number(msg.ttft_ms ?? 0);
         const ttfaMs = Number(msg.ttfa_ms ?? 0);
@@ -467,14 +490,22 @@ export class Lfm3VoiceClient {
 
   async startPushToTalk(): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      this.connect();
+      this.emit({ lastError: "Connecte d'abord LFM3 avant de parler." });
+      return;
     }
     this.cancelResponse();
-    const engine = this.ensureAudio();
-    await engine.initialize();
-    await engine.startCapture();
-    trackUsageEvent("lfm3.ptt_start", { source: "assistant_local" });
     this.emit({ isCapturing: true, streamingText: "", lastError: "" });
+    try {
+      const engine = this.ensureAudio();
+      await engine.initialize();
+      await engine.startCapture();
+      trackUsageEvent("lfm3.ptt_start", { source: "assistant_local" });
+    } catch (err) {
+      this.emit({
+        isCapturing: false,
+        lastError: err instanceof Error ? err.message : "Micro indisponible",
+      });
+    }
   }
 
   async commitPushToTalk(): Promise<void> {
