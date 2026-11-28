@@ -22,35 +22,49 @@ afterEach(async () => {
 });
 
 describe("homelab-stats-store", () => {
-  it("records, aggregates, and ranks top actions and screens by source", async () => {
+  it("records, aggregates, and ranks top actions, screens, and LFM3 telemetry", async () => {
     const home = await makeTempHome();
     await recordHomelabUsageEvents(home, [
       { action: "composer.send", screen: "agent", source: "user" },
       { action: "composer.send", screen: "agent", source: "user" },
-      { action: "speech.read_aloud", screen: "agent", source: "assistant_local" },
-      { action: "team.switch_tab", screen: "team", source: "agent_remote", detail: "colab" },
+      {
+        action: "lfm3.tool_parse_ok",
+        screen: "agent",
+        source: "assistant_local",
+        meta: { utterance: "mets ça en brouillon", tool: "draft" },
+      },
+      {
+        action: "lfm3.tool_parse_fail",
+        screen: "agent",
+        source: "assistant_local",
+        meta: { rawName: "draft_prom" },
+      },
+      {
+        action: "session.switch",
+        screen: "agent",
+        source: "user",
+        meta: { from: "sess-a", to: "sess-b" },
+      },
+      {
+        action: "lfm3.latency",
+        screen: "team",
+        source: "assistant_local",
+        meta: { wsRttMs: 12, ttftMs: 45, ttfaMs: 90 },
+      },
     ]);
 
     const file = await readHomelabUsageStatsFile(home);
     const summary = summarizeHomelabUsageStats(file);
 
-    expect(summary.totalEvents).toBe(4);
-    expect(summary.sourceCounts).toEqual({
-      user: 2,
-      assistant_local: 1,
-      agent_remote: 1,
-    });
-    expect(summary.topActions[0]).toEqual({
-      key: "composer.send",
-      count: 2,
-      sharePct: 50,
-    });
-    expect(summary.topScreens[0]).toEqual({
-      key: "agent",
-      count: 3,
-      sharePct: 75,
-    });
-    expect(summary.recentEvents).toHaveLength(4);
+    expect(summary.totalEvents).toBe(6);
+    expect(summary.topActions[0]).toEqual({ key: "composer.send", count: 2, sharePct: 33.3 });
+    expect(summary.lfm3.toolParseOk).toBe(1);
+    expect(summary.lfm3.toolParseFail).toBe(1);
+    expect(summary.lfm3.toolParseSuccessRatePct).toBe(50);
+    expect(summary.lfm3.failRawNames[0]?.key).toBe("draft_prom");
+    expect(summary.lfm3.topSessionTransitions[0]?.key).toBe("sess-a -> sess-b");
+    expect(summary.lfm3.avgLatencyMs).toEqual({ wsRttMs: 12, ttftMs: 45, ttfaMs: 90 });
+    expect(summary.lfm3.trainingPairsCount).toBe(1);
   });
 
   it("resets stats cleanly", async () => {
@@ -58,6 +72,6 @@ describe("homelab-stats-store", () => {
     await recordHomelabUsageEvents(home, [{ action: "composer.send", screen: "agent" }]);
     const cleared = await resetHomelabUsageStats(home);
     expect(cleared.totalEvents).toBe(0);
-    expect(cleared.recentEvents).toEqual([]);
+    expect(cleared.lfm3.toolParseOk).toBe(0);
   });
 });

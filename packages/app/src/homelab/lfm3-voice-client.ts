@@ -1,6 +1,11 @@
 import { createAudioEngine, type AudioEngine } from "@/audio";
 import { homelabFetchJson, type DaemonHttpTarget, type HomelabTeamView } from "./api";
-import { executeAppControlCommand, getAppUiSnapshot } from "./app-control-bridge";
+import {
+  executeAppControlCommand,
+  formatActivePaseoContext,
+  getAppUiSnapshot,
+  subscribeAppUiSnapshot,
+} from "./app-control-bridge";
 import { trackUsageEvent } from "./usage-stats";
 
 export const DEFAULT_LFM3_WS_URL = "ws://100.67.68.24:18765";
@@ -99,45 +104,114 @@ async function runSummarizeSessionTool(
     : { ok: false, error: `Session ${sessionId} introuvable` };
 }
 
+async function runSwitchSessionTool(
+  target: DaemonHttpTarget,
+  args: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const query = String(args.session ?? args.session_id ?? "").trim();
+  if (!query) return { ok: false, error: "session manquant" };
+  let resolvedId = query;
+  try {
+    const team = await homelabFetchJson<HomelabTeamView>(target, "/api/homelab/team");
+    const lower = query.toLowerCase();
+    const match = (team.agents ?? []).find(
+      (a) => a.id === query || a.id.startsWith(query) || a.title.toLowerCase().includes(lower),
+    );
+    if (match) resolvedId = match.id;
+  } catch {
+    // Fallback to direct ID navigation
+  }
+  return executeAppControlCommand(
+    "navigate",
+    { screen: "sessions", agentId: resolvedId },
+    "assistant_local",
+  );
+}
+
+async function runSendTool(
+  target: DaemonHttpTarget,
+  args: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const message = String(args.text ?? args.message ?? "").trim();
+  const sessionId = String(args.session ?? args.session_id ?? "").trim();
+  if (!message) return { ok: false, error: "message vide" };
+  if (!sessionId) {
+    await executeAppControlCommand(
+      "composer.set_text",
+      { text: message, mode: "replace" },
+      "assistant_local",
+    );
+    return executeAppControlCommand("composer.submit", {}, "assistant_local");
+  }
+  const res = await homelabFetchJson<Record<string, unknown>>(target, "/api/homelab/send", {
+    method: "POST",
+    body: { agentId: sessionId, prompt: message },
+  });
+  return { ok: true, delivered: true, res };
+}
+
+const KNOWN_LFM3_TOOLS = new Set([
+  "list_sessions",
+  "switch_session",
+  "summarize_session",
+  "scroll",
+  "show_image",
+  "draft",
+  "send",
+  "send_message",
+  "read_aloud",
+  "stop_speech",
+  "read_markdown",
+  "interrupt_session",
+]);
+
 export async function executeLfm3PaseoTool(
   target: DaemonHttpTarget,
   name: string,
   args: Record<string, unknown>,
+  utterance = "",
 ): Promise<Record<string, unknown>> {
-  trackUsageEvent(`lfm3.tool.${name}`, { source: "assistant_local" });
+  if (!KNOWN_LFM3_TOOLS.has(name)) {
+    trackUsageEvent("lfm3.tool_parse_fail", {
+      source: "assistant_local",
+      meta: { rawName: name, utterance },
+    });
+    return { ok: false, error: `Outil inconnu: ${name}` };
+  }
+  trackUsageEvent("lfm3.tool_parse_ok", {
+    source: "assistant_local",
+    meta: { tool: name, utterance },
+  });
 
   switch (name) {
     case "list_sessions":
       return runListSessionsTool(target, args);
-    case "switch_session": {
-      const sessionId = String(args.session_id ?? "").trim();
-      if (!sessionId) return { ok: false, error: "session_id manquant" };
-      return executeAppControlCommand(
-        "navigate",
-        { screen: "sessions", agentId: sessionId },
-        "assistant_local",
-      );
-    }
+    case "switch_session":
+      return runSwitchSessionTool(target, args);
     case "summarize_session":
       return runSummarizeSessionTool(target, args);
-    case "send_message": {
-      const message = String(args.message ?? "").trim();
-      const sessionId = String(args.session_id ?? "").trim();
-      if (!message) return { ok: false, error: "message vide" };
-      if (!sessionId) {
-        await executeAppControlCommand(
-          "composer.set_text",
-          { text: message, mode: "replace" },
-          "assistant_local",
-        );
-        return executeAppControlCommand("composer.submit", {}, "assistant_local");
-      }
-      const res = await homelabFetchJson<Record<string, unknown>>(target, "/api/homelab/send", {
-        method: "POST",
-        body: { agentId: sessionId, prompt: message },
-      });
-      return { ok: true, delivered: true, res };
-    }
+    case "scroll":
+      return executeAppControlCommand(
+        "scroll",
+        { direction: String(args.direction ?? "down") },
+        "assistant_local",
+      );
+    case "show_image":
+      return executeAppControlCommand("show_image", {}, "assistant_local");
+    case "draft":
+      return executeAppControlCommand(
+        "composer.set_text",
+        { text: String(args.text ?? ""), mode: "replace" },
+        "assistant_local",
+      );
+    case "send":
+    case "send_message":
+      return runSendTool(target, args);
+    case "read_aloud":
+      return executeAppControlCommand("speech.read_aloud", {}, "assistant_local");
+    case "stop_speech":
+    case "interrupt_session":
+      return executeAppControlCommand("speech.stop", {}, "assistant_local");
     case "read_markdown": {
       const docPath = String(args.path ?? "").trim();
       if (!docPath) return { ok: false, error: "path manquant" };
@@ -147,8 +221,6 @@ export async function executeLfm3PaseoTool(
       );
       return { ok: true, content: (doc.content ?? "").slice(0, 1800) };
     }
-    case "interrupt_session":
-      return executeAppControlCommand("speech.stop", {}, "assistant_local");
     default:
       return { ok: false, error: `Outil inconnu: ${name}` };
   }
@@ -159,6 +231,10 @@ export class Lfm3VoiceClient {
   private audio: AudioEngine | null = null;
   private target: DaemonHttpTarget;
   private listeners = new Set<() => void>();
+  private unsubContext: (() => void) | null = null;
+  private lastAgentKey = "";
+  private lastUtterance = "";
+  private turnStartMs = 0;
   private state: Lfm3VoiceState = {
     connectionState: "disconnected",
     wsUrl: DEFAULT_LFM3_WS_URL,
@@ -222,6 +298,20 @@ export class Lfm3VoiceClient {
     return this.audio;
   }
 
+  private pushSessionConfig(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const snap = getAppUiSnapshot();
+    this.lastAgentKey = `${snap.screen}:${snap.activeAgentId ?? ""}`;
+    this.ws.send(
+      JSON.stringify({
+        type: "session.config",
+        system_prompt: formatActivePaseoContext(snap),
+        tools_enabled: true,
+        language_hint: "fr",
+      }),
+    );
+  }
+
   connect(wsUrl?: string): void {
     const url = (wsUrl ?? this.state.wsUrl).trim() || DEFAULT_LFM3_WS_URL;
     this.disconnect();
@@ -230,13 +320,14 @@ export class Lfm3VoiceClient {
     this.ws = socket;
 
     socket.addEventListener("open", () => {
-      socket.send(
-        JSON.stringify({
-          type: "session.config",
-          tools_enabled: true,
-          language_hint: "fr",
-        }),
-      );
+      this.pushSessionConfig();
+      this.unsubContext = subscribeAppUiSnapshot(() => {
+        const snap = getAppUiSnapshot();
+        const key = `${snap.screen}:${snap.activeAgentId ?? ""}`;
+        if (key !== this.lastAgentKey) {
+          this.pushSessionConfig();
+        }
+      });
     });
 
     socket.addEventListener("message", (event) => {
@@ -264,6 +355,8 @@ export class Lfm3VoiceClient {
   }
 
   disconnect(): void {
+    this.unsubContext?.();
+    this.unsubContext = null;
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -290,10 +383,12 @@ export class Lfm3VoiceClient {
     const id = String(msg.id ?? "tc-0");
     const name = String(msg.name ?? "");
     const args = (msg.arguments ?? {}) as Record<string, unknown>;
-    const output = await executeLfm3PaseoTool(this.target, name, args).catch((err: unknown) => ({
-      ok: false,
-      error: err instanceof Error ? err.message : "Erreur exécution outil",
-    }));
+    const output = await executeLfm3PaseoTool(this.target, name, args, this.lastUtterance).catch(
+      (err: unknown) => ({
+        ok: false,
+        error: err instanceof Error ? err.message : "Erreur exécution outil",
+      }),
+    );
     this.emit({
       toolLogs: [
         { id, name, arguments: args, output, ts: Date.now() },
@@ -327,17 +422,25 @@ export class Lfm3VoiceClient {
       case "response.tool_call":
         await this.handleToolCallMessage(msg);
         return;
-      case "response.done":
+      case "response.done": {
+        const wsRttMs = this.turnStartMs > 0 ? Date.now() - this.turnStartMs : 0;
+        const ttftMs = Number(msg.ttft_ms ?? 0);
+        const ttfaMs = Number(msg.ttfa_ms ?? 0);
+        trackUsageEvent("lfm3.latency", {
+          source: "assistant_local",
+          meta: { wsRttMs, ttftMs, ttfaMs },
+        });
         this.emit({
           isGenerating: false,
           metrics: {
-            ttftMs: Number(msg.ttft_ms ?? 0),
-            ttfaMs: Number(msg.ttfa_ms ?? 0),
+            ttftMs,
+            ttfaMs,
             totalMs: Number(msg.total_ms ?? 0),
             cancelled: Boolean(msg.cancelled),
           },
         });
         return;
+      }
       case "error":
         this.emit({ isGenerating: false, lastError: String(msg.message ?? "Erreur LFM3") });
     }
@@ -359,6 +462,8 @@ export class Lfm3VoiceClient {
     if (this.audio) {
       await this.audio.stopCapture();
     }
+    this.turnStartMs = Date.now();
+    this.lastUtterance = "(audio_ptt)";
     this.emit({ isCapturing: false, isGenerating: true, streamingText: "" });
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: "input.audio.commit" }));
@@ -372,6 +477,8 @@ export class Lfm3VoiceClient {
       this.emit({ lastError: "Connecte d'abord le WebSocket LFM3." });
       return;
     }
+    this.turnStartMs = Date.now();
+    this.lastUtterance = clean;
     trackUsageEvent("lfm3.text_prompt", { source: "assistant_local" });
     this.emit({ isGenerating: true, streamingText: "", lastError: "" });
     this.ws.send(JSON.stringify({ type: "input.text", text: clean }));

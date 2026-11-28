@@ -5,6 +5,7 @@ export interface QueuedUsageEvent {
   screen?: string;
   source?: UsageEventSource;
   detail?: string;
+  meta?: Record<string, unknown>;
   ts: number;
 }
 
@@ -70,6 +71,7 @@ export function trackUsageEvent(
     screen?: string;
     source?: UsageEventSource;
     detail?: string;
+    meta?: Record<string, unknown>;
   } = {},
 ): void {
   const cleanAction = action.trim();
@@ -81,6 +83,7 @@ export function trackUsageEvent(
     screen,
     source,
     ...(options.detail ? { detail: options.detail.slice(0, 200) } : {}),
+    ...(options.meta ? { meta: options.meta } : {}),
     ts: Date.now(),
   };
 

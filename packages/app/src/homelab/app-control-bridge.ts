@@ -18,6 +18,25 @@ export interface TeamTabControlHandle {
   switchTab: (tab: string) => void;
 }
 
+export type ScrollPositionTag = "top" | "middle" | "bottom";
+export type ScrollDirection = "up" | "down" | "top" | "bottom";
+
+export interface ScrollControlHandle {
+  scroll: (direction: ScrollDirection) => void;
+  getPosition: () => ScrollPositionTag;
+}
+
+export interface MediaControlHandle {
+  hasImage: () => boolean;
+  getImageLabel: () => string | null;
+  showImage: () => boolean;
+}
+
+export interface RecentContextMessage {
+  role: "user" | "assistant";
+  text: string;
+}
+
 export interface AssistantMessageSummary {
   id: string;
   text: string;
@@ -29,7 +48,15 @@ export interface AppUiSnapshot {
   screen: string;
   activeServerId: string | null;
   activeAgentId: string | null;
+  activeSessionTitle: string | null;
   activeWorkspaceId: string | null;
+  recentMessages: RecentContextMessage[];
+  scrollPosition: ScrollPositionTag;
+  visibleMedia: {
+    hasImage: boolean;
+    imageLabel: string | null;
+  };
+  composerDraft: string;
   composer: {
     attached: boolean;
     text: string;
@@ -47,13 +74,17 @@ export interface AppUiSnapshot {
 let activeComposer: ComposerControlHandle | null = null;
 let activeNavigation: NavigationControlHandle | null = null;
 let activeTeamTab: TeamTabControlHandle | null = null;
+let activeScroll: ScrollControlHandle | null = null;
+let activeMedia: MediaControlHandle | null = null;
 let lastAssistantMsg: AssistantMessageSummary | null = null;
+let recentContextMessages: RecentContextMessage[] = [];
 
 const uiMeta = {
   pathname: "/",
   screen: "home",
   activeServerId: null as string | null,
   activeAgentId: null as string | null,
+  activeSessionTitle: null as string | null,
   activeWorkspaceId: null as string | null,
 };
 
@@ -79,14 +110,54 @@ export function updateAppUiLocation(next: {
   screen: string;
   activeServerId?: string | null;
   activeAgentId?: string | null;
+  activeSessionTitle?: string | null;
   activeWorkspaceId?: string | null;
 }): void {
+  const prevAgent = uiMeta.activeAgentId;
   uiMeta.pathname = next.pathname;
   uiMeta.screen = next.screen;
   if (next.activeServerId !== undefined) uiMeta.activeServerId = next.activeServerId;
   if (next.activeAgentId !== undefined) uiMeta.activeAgentId = next.activeAgentId;
+  if (next.activeSessionTitle !== undefined) uiMeta.activeSessionTitle = next.activeSessionTitle;
   if (next.activeWorkspaceId !== undefined) uiMeta.activeWorkspaceId = next.activeWorkspaceId;
+  if (next.activeAgentId && next.activeAgentId !== prevAgent) {
+    trackUsageEvent("session.switch", {
+      screen: next.screen,
+      source: "user",
+      meta: { from: prevAgent ?? "none", to: next.activeAgentId },
+    });
+  }
   notifySnapshotListeners();
+}
+
+export function updateRecentContextMessages(messages: RecentContextMessage[]): void {
+  recentContextMessages = messages.slice(-3).map((m) => ({
+    role: m.role,
+    text: m.text.slice(0, 350),
+  }));
+  notifySnapshotListeners();
+}
+
+export function registerScrollController(handle: ScrollControlHandle | null): () => void {
+  activeScroll = handle;
+  notifySnapshotListeners();
+  return () => {
+    if (activeScroll === handle) {
+      activeScroll = null;
+      notifySnapshotListeners();
+    }
+  };
+}
+
+export function registerMediaController(handle: MediaControlHandle | null): () => void {
+  activeMedia = handle;
+  notifySnapshotListeners();
+  return () => {
+    if (activeMedia === handle) {
+      activeMedia = null;
+      notifySnapshotListeners();
+    }
+  };
 }
 
 export function updateLastAssistantMessage(msg: AssistantMessageSummary | null): void {
@@ -135,13 +206,27 @@ export function getAppUiSnapshot(): AppUiSnapshot {
   if (activeTeamTab) {
     availableActions.push("team.switch_tab");
   }
+  if (activeScroll) {
+    availableActions.push("scroll");
+  }
+  if (activeMedia?.hasImage()) {
+    availableActions.push("show_image");
+  }
 
   cachedSnapshot = {
     pathname: uiMeta.pathname,
     screen: uiMeta.screen,
     activeServerId: uiMeta.activeServerId,
     activeAgentId: uiMeta.activeAgentId,
+    activeSessionTitle: uiMeta.activeSessionTitle,
     activeWorkspaceId: uiMeta.activeWorkspaceId,
+    recentMessages: recentContextMessages,
+    scrollPosition: activeScroll ? activeScroll.getPosition() : "bottom",
+    visibleMedia: {
+      hasImage: activeMedia ? activeMedia.hasImage() : false,
+      imageLabel: activeMedia ? activeMedia.getImageLabel() : null,
+    },
+    composerDraft: composerText,
     composer: {
       attached: Boolean(activeComposer),
       text: composerText,
@@ -230,6 +315,38 @@ function runSpeechCommand(command: string, args: Record<string, unknown>): Recor
   return { ok: true, speakingId: id, length: text.length };
 }
 
+export function formatActivePaseoContext(snap: AppUiSnapshot = getAppUiSnapshot()): string {
+  const header = `[CONTEXTE ACTIF PASEO]\nscreen=${snap.screen} | agentId=${snap.activeAgentId ?? "none"} | title=${snap.activeSessionTitle ?? "none"} | workspace=${snap.activeWorkspaceId ?? "none"} | scroll=${snap.scrollPosition} | hasImage=${snap.visibleMedia.hasImage} (${snap.visibleMedia.imageLabel ?? "none"})`;
+  let msgs = "(aucun message récent)";
+  if (snap.recentMessages.length > 0) {
+    msgs = snap.recentMessages.map((m) => `${m.role}: ${m.text}`).join("\n");
+  } else if (snap.lastAssistantMessage) {
+    msgs = `assistant: ${snap.lastAssistantMessage.textPreview.slice(0, 350)}`;
+  }
+  const draftLine = snap.composerDraft ? `composerDraft: ${snap.composerDraft.slice(0, 240)}` : "";
+  return [header, msgs, draftLine].filter(Boolean).join("\n").slice(0, 1600);
+}
+
+function runUiViewCommand(command: string, args: Record<string, unknown>): Record<string, unknown> {
+  if (command === "scroll") {
+    const dir = String(args.direction ?? "down") as ScrollDirection;
+    if (!activeScroll) {
+      return { ok: false, error: "Aucun scroll actif sur cet écran" };
+    }
+    activeScroll.scroll(dir);
+    notifySnapshotListeners();
+    return { ok: true, direction: dir };
+  }
+  if (command === "show_image") {
+    if (!activeMedia || !activeMedia.hasImage()) {
+      return { ok: false, error: "Aucune image visible dans la session" };
+    }
+    const opened = activeMedia.showImage();
+    return { ok: opened, imageLabel: activeMedia.getImageLabel() };
+  }
+  return { ok: false, error: `Commande vue inconnue: ${command}` };
+}
+
 export async function executeAppControlCommand(
   command: string,
   args: Record<string, unknown> = {},
@@ -256,6 +373,10 @@ export async function executeAppControlCommand(
 
   if (command === "speech.read_aloud" || command === "speech.stop") {
     return runSpeechCommand(command, args);
+  }
+
+  if (command === "scroll" || command === "show_image") {
+    return runUiViewCommand(command, args);
   }
 
   if (command === "team.switch_tab") {
