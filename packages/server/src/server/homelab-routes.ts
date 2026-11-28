@@ -1,10 +1,28 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { access, readdir, readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { Express, Request, Response } from "express";
 import type { Logger } from "pino";
+import {
+  buildEffectiveSystemPrompt,
+  COLAB_GPU_TIERS,
+  COLAB_MAX_SLOTS,
+  evaluateColabSlotGuard,
+  PROVIDER_CATALOG,
+  readHomelabTemplates,
+  selectCheapestCompatibleColabGpu,
+  writeHomelabTemplates,
+  type ColabGpuTier,
+  type HomelabTemplatesStoreData,
+  type McpTemplate,
+  type QuantOption,
+  type ScenarioTemplate,
+  type SkillTemplate,
+  type TemplateUniverse,
+} from "./homelab-templates-store.js";
 import {
   mutatePinnedSession,
   readPinnedSessions,
@@ -17,6 +35,8 @@ const execFileAsync = promisify(execFile);
 
 const ROUTER_URL = process.env.PASEO_HOMELAB_ROUTER_URL ?? "http://127.0.0.1:11435/router";
 const COLAB_STATUS_URL = process.env.PASEO_HOMELAB_COLAB_URL ?? "http://127.0.0.1:11435/status";
+const COLAB_WAKE_URL =
+  process.env.PASEO_HOMELAB_COLAB_WAKE_URL ?? "http://127.0.0.1:11435/wake?async=1";
 const COLAB_STOP_URL = process.env.PASEO_HOMELAB_COLAB_STOP_URL ?? "http://127.0.0.1:11435/stop";
 const COLAB_OLLAMA_PS_URL =
   process.env.PASEO_HOMELAB_COLAB_PS_URL ?? "http://127.0.0.1:11436/api/ps";
@@ -1040,6 +1060,283 @@ export function registerHomelabRoutes(
       );
       const ok = results.some((r) => r.rc === 0);
       res.status(ok ? 200 : 500).json({ ok, results });
+    })();
+  });
+
+  app.get("/api/homelab/catalog", (_req: Request, res: Response) => {
+    res.json({
+      ok: true,
+      providers: PROVIDER_CATALOG,
+      gpuTiers: COLAB_GPU_TIERS,
+      maxColabSlots: COLAB_MAX_SLOTS,
+    });
+  });
+
+  app.get("/api/homelab/templates", (_req: Request, res: Response) => {
+    void (async () => {
+      try {
+        const data = await readHomelabTemplates(paseoHome);
+        res.json({ ok: true, ...data });
+      } catch (err) {
+        logger.warn({ err }, "Homelab templates read failed");
+        res.status(500).json({ ok: false, error: "Impossible de lire les templates" });
+      }
+    })();
+  });
+
+  type TemplateKind = "scenarios" | "skills" | "mcps";
+  const isValidKind = (kind: string): kind is TemplateKind =>
+    kind === "scenarios" || kind === "skills" || kind === "mcps";
+
+  app.post("/api/homelab/templates/:kind", (req: Request, res: Response) => {
+    const kind = String(req.params.kind ?? "");
+    if (!isValidKind(kind)) {
+      res.status(400).json({ ok: false, error: "Type de template invalide" });
+      return;
+    }
+    const payload = (req.body ?? {}) as Record<string, unknown>;
+    void (async () => {
+      try {
+        const data = await readHomelabTemplates(paseoHome);
+        const now = new Date().toISOString();
+        const id =
+          String(payload.id ?? "").trim() || `${kind.slice(0, 3)}-${randomUUID().slice(0, 8)}`;
+        const created = { ...payload, id, builtIn: false, updatedAt: now };
+        if (kind === "scenarios") data.scenarios.unshift(created as unknown as ScenarioTemplate);
+        if (kind === "skills") data.skills.unshift(created as unknown as SkillTemplate);
+        if (kind === "mcps") data.mcps.unshift(created as unknown as McpTemplate);
+        data.updatedAt = now;
+        await writeHomelabTemplates(paseoHome, data);
+        res.status(201).json({ ok: true, item: created, ...data });
+      } catch (err) {
+        logger.warn({ err }, "Homelab template create failed");
+        res.status(500).json({ ok: false, error: "Création impossible" });
+      }
+    })();
+  });
+
+  app.put("/api/homelab/templates/:kind/:id", (req: Request, res: Response) => {
+    const kind = String(req.params.kind ?? "");
+    const id = String(req.params.id ?? "").trim();
+    if (!isValidKind(kind) || !id) {
+      res.status(400).json({ ok: false, error: "Paramètres invalides" });
+      return;
+    }
+    const payload = (req.body ?? {}) as Record<string, unknown>;
+    void (async () => {
+      try {
+        const data = await readHomelabTemplates(paseoHome);
+        const now = new Date().toISOString();
+        const list = data[kind] as unknown as Array<Record<string, unknown>>;
+        const idx = list.findIndex((item) => item.id === id);
+        if (idx === -1) {
+          res.status(404).json({ ok: false, error: "Template introuvable" });
+          return;
+        }
+        const updated = { ...list[idx], ...payload, id, updatedAt: now };
+        list[idx] = updated;
+        data.updatedAt = now;
+        await writeHomelabTemplates(paseoHome, data);
+        res.json({ ok: true, item: updated, ...data });
+      } catch (err) {
+        logger.warn({ err }, "Homelab template update failed");
+        res.status(500).json({ ok: false, error: "Mise à jour impossible" });
+      }
+    })();
+  });
+
+  app.post("/api/homelab/templates/:kind/:id/duplicate", (req: Request, res: Response) => {
+    const kind = String(req.params.kind ?? "");
+    const id = String(req.params.id ?? "").trim();
+    if (!isValidKind(kind) || !id) {
+      res.status(400).json({ ok: false, error: "Paramètres invalides" });
+      return;
+    }
+    void (async () => {
+      try {
+        const data = await readHomelabTemplates(paseoHome);
+        const now = new Date().toISOString();
+        const list = data[kind] as unknown as Array<Record<string, unknown>>;
+        const source = list.find((item) => item.id === id);
+        if (!source) {
+          res.status(404).json({ ok: false, error: "Template introuvable" });
+          return;
+        }
+        const copyId = `${kind.slice(0, 3)}-${randomUUID().slice(0, 8)}`;
+        const duplicated = {
+          ...source,
+          id: copyId,
+          name: `${String(source.name ?? id)} (copie)`,
+          builtIn: false,
+          updatedAt: now,
+        };
+        list.unshift(duplicated);
+        data.updatedAt = now;
+        await writeHomelabTemplates(paseoHome, data);
+        res.status(201).json({ ok: true, item: duplicated, ...data });
+      } catch (err) {
+        logger.warn({ err }, "Homelab template duplicate failed");
+        res.status(500).json({ ok: false, error: "Duplication impossible" });
+      }
+    })();
+  });
+
+  app.delete("/api/homelab/templates/:kind/:id", (req: Request, res: Response) => {
+    const kind = String(req.params.kind ?? "");
+    const id = String(req.params.id ?? "").trim();
+    if (!isValidKind(kind) || !id) {
+      res.status(400).json({ ok: false, error: "Paramètres invalides" });
+      return;
+    }
+    void (async () => {
+      try {
+        const data: HomelabTemplatesStoreData = await readHomelabTemplates(paseoHome);
+        const before = data[kind].length;
+        const filtered = (data[kind] as Array<{ id: string }>).filter((item) => item.id !== id);
+        if (filtered.length === before) {
+          res.status(404).json({ ok: false, error: "Template introuvable" });
+          return;
+        }
+        (data[kind] as Array<{ id: string }>) = filtered;
+        data.updatedAt = new Date().toISOString();
+        await writeHomelabTemplates(paseoHome, data);
+        res.json({ ok: true, ...data });
+      } catch (err) {
+        logger.warn({ err }, "Homelab template delete failed");
+        res.status(500).json({ ok: false, error: "Suppression impossible" });
+      }
+    })();
+  });
+
+  app.post("/api/homelab/launch", (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as {
+      universe?: TemplateUniverse;
+      providerId?: string;
+      modelId?: string;
+      quant?: QuantOption;
+      gpuTier?: ColabGpuTier;
+      systemPrompt?: string;
+      skillIds?: string[];
+      mcpIds?: string[];
+      prompt?: string;
+      cwd?: string;
+      title?: string;
+    };
+
+    const universe: TemplateUniverse = body.universe === "colab" ? "colab" : "local";
+    const providerId = String(body.providerId ?? "opencode").trim() || "opencode";
+    const modelId = String(body.modelId ?? "").trim();
+    const quant: QuantOption = body.quant ?? (universe === "colab" ? "Q4_K_M" : "default");
+    const prompt = String(body.prompt ?? "").trim();
+    const cwd = expandHome(body.cwd) || DEFAULT_REPO_DIR;
+    const title = String(body.title ?? "").trim();
+
+    if (!prompt) {
+      res.status(400).json({ ok: false, error: "Le prompt utilisateur est requis" });
+      return;
+    }
+    if (!modelId) {
+      res.status(400).json({ ok: false, error: "Le modèle est requis" });
+      return;
+    }
+
+    void (async () => {
+      try {
+        const [allDisk, templates, gpuCluster] = await Promise.all([
+          loadDiskAgents(paseoHome),
+          readHomelabTemplates(paseoHome),
+          universe === "colab" ? probeGpuCluster() : Promise.resolve(null),
+        ]);
+
+        let effectiveGpuTier: ColabGpuTier | undefined;
+        if (universe === "colab") {
+          const runningColabAgents = allDisk.filter((a) => {
+            if (a.archivedAt || (a.lastStatus ?? "").toLowerCase() !== "running") return false;
+            const meta = classifyMachine(
+              String(a.provider ?? ""),
+              String(a.runtimeInfo?.model ?? a.config?.model ?? ""),
+              String(a.title ?? ""),
+            );
+            return meta.machine === "colab";
+          }).length;
+          const inFlight = Number(
+            gpuCluster && "colab" in gpuCluster ? (gpuCluster.colab?.in_flight ?? 0) : 0,
+          );
+          const guard = evaluateColabSlotGuard(runningColabAgents, inFlight);
+          if (!guard.allowed) {
+            res.status(409).json({ ok: false, error: guard.reason, guard });
+            return;
+          }
+          effectiveGpuTier = body.gpuTier ?? selectCheapestCompatibleColabGpu(modelId, quant);
+          const rawModel = modelId.replace(/^colab\//, "");
+          void fetchJson(COLAB_WAKE_URL, {
+            method: "POST",
+            body: { model: rawModel, gpu: effectiveGpuTier, quant },
+            timeoutMs: 2500,
+          });
+        }
+
+        const skillSet = new Set(Array.isArray(body.skillIds) ? body.skillIds : []);
+        const mcpSet = new Set(Array.isArray(body.mcpIds) ? body.mcpIds : []);
+        const selectedSkills = templates.skills.filter((s) => skillSet.has(s.id));
+        const selectedMcps = templates.mcps.filter((m) => mcpSet.has(m.id));
+
+        const effectiveSystem = buildEffectiveSystemPrompt({
+          universe,
+          basePrompt: String(body.systemPrompt ?? ""),
+          selectedSkills,
+        });
+
+        const mcpHint =
+          selectedMcps.length > 0
+            ? `\nOutils MCP activés : ${selectedMcps.map((m) => m.serverName).join(", ")}.`
+            : "";
+        const combinedPrompt = effectiveSystem
+          ? `<instructions_systeme>\n${effectiveSystem}${mcpHint}\n</instructions_systeme>\n\n${prompt}`
+          : prompt;
+
+        const args = [
+          "run",
+          "--no-wait",
+          "--json",
+          "--provider",
+          providerId,
+          "--model",
+          modelId,
+          "--cwd",
+          cwd,
+        ];
+        if (title) {
+          args.push("--title", title);
+        }
+        args.push(combinedPrompt);
+
+        const r = await runCmd(PASEO_BIN, args, 25_000);
+        if (r.rc !== 0) {
+          res.status(500).json({
+            ok: false,
+            error: r.stderr || r.stdout || "Échec du lancement de l'agent",
+          });
+          return;
+        }
+        let launched: Record<string, unknown> = {};
+        try {
+          launched = JSON.parse(r.stdout.trim()) as Record<string, unknown>;
+        } catch {
+          launched = { raw: r.stdout.trim() };
+        }
+        cacheInvalidate("gpu_cluster");
+        res.json({
+          ok: true,
+          universe,
+          gpuTier: effectiveGpuTier,
+          quant,
+          launched,
+        });
+      } catch (err) {
+        logger.warn({ err }, "Homelab unified launch failed");
+        res.status(500).json({ ok: false, error: "Erreur interne au lancement" });
+      }
     })();
   });
 }

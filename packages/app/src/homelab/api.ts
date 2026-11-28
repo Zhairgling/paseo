@@ -150,10 +150,101 @@ export function resolveHomelabDaemonTarget(hosts: readonly HostProfile[]): Daemo
   return { baseUrl: "http://127.0.0.1:6767", headers: {} };
 }
 
+export type TemplateUniverse = "colab" | "local";
+export type QuantOption = "Q4_K_M" | "Q6_K" | "Q8_0" | "default";
+export type ColabGpuTier = "L4" | "A100" | "G4";
+
+export interface ScenarioTemplate {
+  id: string;
+  name: string;
+  description: string;
+  universe: TemplateUniverse;
+  providerId: string;
+  modelId: string;
+  quant: QuantOption;
+  gpuTier?: ColabGpuTier;
+  systemPrompt: string;
+  skillIds: string[];
+  mcpIds: string[];
+  builtIn?: boolean;
+  updatedAt: string;
+}
+
+export interface SkillTemplate {
+  id: string;
+  name: string;
+  description: string;
+  content: string;
+  scope: "both" | TemplateUniverse;
+  builtIn?: boolean;
+  updatedAt: string;
+}
+
+export interface McpTemplate {
+  id: string;
+  name: string;
+  serverName: string;
+  description: string;
+  transport: "http" | "stdio";
+  target: string;
+  scope: "both" | TemplateUniverse;
+  enabledByDefault: boolean;
+  builtIn?: boolean;
+  updatedAt: string;
+}
+
+export interface HomelabTemplatesResponse {
+  ok: boolean;
+  scenarios: ScenarioTemplate[];
+  skills: SkillTemplate[];
+  mcps: McpTemplate[];
+  updatedAt: string;
+}
+
+export interface ProviderModelSpec {
+  id: string;
+  label: string;
+  universe: TemplateUniverse;
+  providerId: string;
+  modelId: string;
+  defaultQuant: QuantOption;
+  supportedQuants: QuantOption[];
+  vramGbByQuant: Partial<Record<QuantOption, number>>;
+}
+
+export interface HomelabCatalogResponse {
+  ok: boolean;
+  providers: ProviderModelSpec[];
+  gpuTiers: Array<{ tier: ColabGpuTier; label: string; vramGb: number; relativeCostRank: number }>;
+  maxColabSlots: number;
+}
+
+export interface HomelabLaunchRequest {
+  universe: TemplateUniverse;
+  providerId: string;
+  modelId: string;
+  quant: QuantOption;
+  gpuTier?: ColabGpuTier;
+  systemPrompt: string;
+  skillIds: string[];
+  mcpIds: string[];
+  prompt: string;
+  cwd?: string;
+  title?: string;
+}
+
+export interface HomelabLaunchResponse {
+  ok: boolean;
+  universe: TemplateUniverse;
+  gpuTier?: ColabGpuTier;
+  quant: QuantOption;
+  launched?: Record<string, unknown>;
+}
+
 export async function homelabFetchJson<T>(
   target: DaemonHttpTarget,
   pathAndQuery: string,
-  init: { method?: "GET" | "POST"; body?: unknown } = {},
+  init: { method?: "GET" | "POST" | "PUT" | "DELETE"; body?: unknown } = {},
 ): Promise<T> {
   const url = `${target.baseUrl}${pathAndQuery}`;
   const headers: Record<string, string> = {

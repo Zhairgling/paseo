@@ -139,6 +139,10 @@ import {
   handOffDraftMetadata,
 } from "./new-workspace/background-handoff";
 import { useNewWorkspaceScreenPresence } from "./new-workspace/screen-presence";
+import { HomelabScenarioLauncher } from "@/homelab/templates-manager";
+import { resolveHomelabDaemonTarget } from "@/homelab/api";
+import { PressHighlight } from "@/components/ui/press-highlight";
+import { ScrollView } from "react-native";
 
 function useIsNewWorkspaceDraftHandoffActive(input: {
   draftId: string | undefined;
@@ -1737,6 +1741,7 @@ export function NewWorkspaceScreen({
         formStack={formStack}
         onImportSession={importSession.open}
       >
+        <NewWorkspaceScenarioBar visible={!isComposerFullscreen} cwd={workingDirectory} />
         {composer}
       </NewWorkspaceLayout>
       {importSession.sheet}
@@ -1744,10 +1749,73 @@ export function NewWorkspaceScreen({
   );
 }
 
+function NewWorkspaceScenarioBar({
+  visible,
+  cwd,
+}: {
+  visible: boolean;
+  cwd: string | null | undefined;
+}) {
+  const hosts = useHosts();
+  const target = useMemo(() => resolveHomelabDaemonTarget(hosts), [hosts]);
+  const [expanded, setExpanded] = useState(false);
+  const handleToggle = useCallback(() => {
+    setExpanded((prev) => !prev);
+  }, []);
+  const handleClose = useCallback(() => {
+    setExpanded(false);
+  }, []);
+
+  if (!visible) return null;
+  return (
+    <View style={scenarioStyles.wrapper}>
+      <PressHighlight onPress={handleToggle} style={scenarioStyles.togglePill}>
+        <Text style={scenarioStyles.toggleText}>
+          {expanded ? "Masquer Scénarios & Templates" : "Scénarios & Templates (Colab / Local)"}
+        </Text>
+      </PressHighlight>
+      {expanded ? (
+        <ScrollView style={scenarioStyles.scroll}>
+          <HomelabScenarioLauncher
+            target={target}
+            cwd={cwd ?? undefined}
+            colabUsedSlots={0}
+            onLaunched={handleClose}
+          />
+        </ScrollView>
+      ) : null}
+    </View>
+  );
+}
+
 /**
  * The setup model, built with what the screen has this render so a plugin item's mount effect can
  * already run commands, and kept current on every commit.
  */
+const scenarioStyles = StyleSheet.create((theme) => ({
+  wrapper: {
+    paddingHorizontal: theme.spacing[4],
+    paddingBottom: theme.spacing[2],
+    gap: theme.spacing[2],
+  },
+  togglePill: {
+    alignSelf: "flex-start",
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface1,
+  },
+  toggleText: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.semibold,
+    color: theme.colors.accent,
+  },
+  scroll: {
+    maxHeight: 360,
+  },
+}));
 function usePluginSetup(input: {
   serverId: string;
   project: Parameters<typeof getHostProjectId>[0] | null;

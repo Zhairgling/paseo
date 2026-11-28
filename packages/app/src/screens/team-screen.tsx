@@ -18,11 +18,12 @@ import {
   type HomelabTimelineItem,
 } from "@/homelab/api";
 import { computeColabGpuMetrics } from "@/homelab/colab-metrics";
+import { HomelabScenarioLauncher, HomelabTemplatesCrudPanel } from "@/homelab/templates-manager";
 import { useHosts } from "@/runtime/host-runtime";
 import { UsageMeter } from "@/usage/meter";
 import { buildHostAgentDetailRoute } from "@/utils/host-routes";
 
-type TabId = "team" | "gpu" | "docs";
+type TabId = "colab" | "local" | "templates" | "docs";
 type TargetId = "both" | "colab" | "mac" | "evo" | "air" | "blade" | "launch_both";
 type BehaviorId = "queue" | "steer" | "interrupt";
 type NodeHealth = "ok" | "warn" | "off";
@@ -32,9 +33,10 @@ const ThemedRefreshIcon = withUnistyles(RefreshCw, (theme) => ({
 }));
 
 const TAB_OPTIONS: ReadonlyArray<{ id: TabId; label: string }> = [
-  { id: "team", label: "Équipe unifiée" },
-  { id: "gpu", label: "Monitoring GPU" },
-  { id: "docs", label: "Board & Docs" },
+  { id: "colab", label: "Colab GPU" },
+  { id: "local", label: "Local & Agents" },
+  { id: "templates", label: "Templates" },
+  { id: "docs", label: "Docs" },
 ];
 
 const TARGET_OPTIONS: ReadonlyArray<{ id: TargetId; label: string }> = [
@@ -122,7 +124,7 @@ function TeamScreenContent(): ReactElement {
   const primaryServerId = hosts[0]?.serverId ?? null;
   const target = useMemo(() => resolveHomelabDaemonTarget(hosts), [hosts]);
 
-  const [tab, setTab] = useState<TabId>("team");
+  const [tab, setTab] = useState<TabId>("colab");
   const [selectedCwd, setSelectedCwd] = useState<string>("");
   const [gpu, setGpu] = useState<HomelabGpuStatus | null>(null);
   const [team, setTeam] = useState<HomelabTeamView | null>(null);
@@ -183,8 +185,16 @@ function TeamScreenContent(): ReactElement {
     void refreshAll();
   }, [refreshAll]);
 
+  const handleLocalScenarioLaunched = useCallback(
+    (msg: string) => {
+      setFeedback(msg);
+      handleRefreshPress();
+    },
+    [handleRefreshPress],
+  );
+
   const handleOpenGpuTab = useCallback(() => {
-    setTab("gpu");
+    setTab("colab");
   }, []);
 
   const openAgentNative = useCallback(
@@ -216,12 +226,12 @@ function TeamScreenContent(): ReactElement {
         </View>
       ) : null}
 
-      {tab === "team" ? (
-        <TeamTabPanel
+      {tab === "colab" ? (
+        <ColabUniversePanel
           target={target}
+          gpu={gpu}
           team={team}
           selectedCwd={selectedCwd}
-          onSelectCwd={setSelectedCwd}
           onOpenAgent={openAgentNative}
           onRefresh={handleRefreshPress}
           feedback={feedback}
@@ -229,14 +239,39 @@ function TeamScreenContent(): ReactElement {
         />
       ) : null}
 
-      {tab === "gpu" ? (
-        <GpuTabPanel
-          target={target}
-          gpu={gpu}
-          onRefresh={handleRefreshPress}
-          feedback={feedback}
-          onFeedback={setFeedback}
-        />
+      {tab === "local" ? (
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.gpuContent}>
+          <GpuTabPanel
+            target={target}
+            gpu={gpu}
+            onRefresh={handleRefreshPress}
+            feedback={feedback}
+            onFeedback={setFeedback}
+          />
+          <HomelabScenarioLauncher
+            target={target}
+            lockedUniverse="local"
+            cwd={selectedCwd || team?.cwd}
+            colabUsedSlots={0}
+            onLaunched={handleLocalScenarioLaunched}
+          />
+          <TeamTabPanel
+            target={target}
+            team={team}
+            selectedCwd={selectedCwd}
+            onSelectCwd={setSelectedCwd}
+            onOpenAgent={openAgentNative}
+            onRefresh={handleRefreshPress}
+            feedback={feedback}
+            onFeedback={setFeedback}
+          />
+        </ScrollView>
+      ) : null}
+
+      {tab === "templates" ? (
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.gpuContent}>
+          <HomelabTemplatesCrudPanel target={target} />
+        </ScrollView>
       ) : null}
 
       {tab === "docs" ? (
@@ -861,6 +896,107 @@ function GpuTabPanel({
   );
 }
 
+function ColabUniversePanel({
+  target,
+  gpu,
+  team,
+  selectedCwd,
+  onOpenAgent,
+  onRefresh,
+  feedback,
+  onFeedback,
+}: {
+  target: ReturnType<typeof resolveHomelabDaemonTarget>;
+  gpu: HomelabGpuStatus | null;
+  team: HomelabTeamView | null;
+  selectedCwd: string;
+  onOpenAgent: (agentId: string, workspaceId: string) => void;
+  onRefresh: () => void;
+  feedback: string;
+  onFeedback: (msg: string) => void;
+}) {
+  const [stoppingColab, setStoppingColab] = useState(false);
+
+  const colabAgents = useMemo(
+    () => (team?.agents ?? []).filter((a) => a.machine === "colab"),
+    [team?.agents],
+  );
+  const runningColabCount = colabAgents.filter(
+    (a) => (a.status ?? "").toLowerCase() === "running",
+  ).length;
+  const colabUsedSlots = Math.max(runningColabCount, Number(gpu?.colab?.in_flight ?? 0));
+
+  const handleToggleTts = useCallback(() => {
+    if (!gpu) return;
+    void homelabFetchJson(target, "/api/homelab/router", {
+      method: "POST",
+      body: { tts_enabled: !gpu.router.tts_enabled },
+    })
+      .then(() => {
+        onFeedback("TTS routeur mis à jour");
+        onRefresh();
+        return undefined;
+      })
+      .catch(() => undefined);
+  }, [gpu, onFeedback, onRefresh, target]);
+
+  const handleStopColab = useCallback(() => {
+    setStoppingColab(true);
+    void homelabFetchJson(target, "/api/homelab/colab/stop", { method: "POST" })
+      .then(() => {
+        onFeedback("VM Colab coupée (0 CU/h)");
+        onRefresh();
+        return undefined;
+      })
+      .catch((err: unknown) => {
+        onFeedback(err instanceof Error ? err.message : "Impossible de couper Colab");
+      })
+      .finally(() => {
+        setStoppingColab(false);
+      });
+  }, [onFeedback, onRefresh, target]);
+
+  const handleColabLaunched = useCallback(
+    (msg: string) => {
+      onFeedback(msg);
+      onRefresh();
+    },
+    [onFeedback, onRefresh],
+  );
+
+  return (
+    <ScrollView style={styles.scroll} contentContainerStyle={styles.gpuContent}>
+      {gpu ? (
+        <ColabRouterCard
+          gpu={gpu}
+          stoppingColab={stoppingColab}
+          onToggleTts={handleToggleTts}
+          onStopColab={handleStopColab}
+        />
+      ) : null}
+
+      <HomelabScenarioLauncher
+        target={target}
+        lockedUniverse="colab"
+        cwd={selectedCwd || team?.cwd}
+        colabUsedSlots={colabUsedSlots}
+        maxColabSlots={2}
+        onLaunched={handleColabLaunched}
+      />
+
+      {colabAgents.length > 0 ? (
+        <View style={styles.agentsRow}>
+          {colabAgents.map((agent) => (
+            <AgentChipButton key={agent.id} agent={agent} onOpenAgent={onOpenAgent} />
+          ))}
+        </View>
+      ) : null}
+
+      {feedback ? <Text style={styles.feedbackText}>{feedback}</Text> : null}
+    </ScrollView>
+  );
+}
+
 function DocsTabPanel({
   team,
   selectedDoc,
@@ -1127,6 +1263,11 @@ const styles = StyleSheet.create((theme) => ({
     flexDirection: "row",
     gap: theme.spacing[2],
     marginTop: theme.spacing[2],
+  },
+  agentsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: theme.spacing[2],
   },
   kvLine: {
     fontSize: theme.fontSize.sm,
